@@ -1,8 +1,6 @@
 name: Publish npm package
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag_name:
@@ -15,16 +13,26 @@ permissions:
   id-token: write
 
 concurrency:
-  group: npm-publish-${{ github.event.release.tag_name || inputs.tag_name }}
+  group: npm-publish-${{ inputs.tag_name }}
   cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     env:
-      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag_name }}
+      RELEASE_TAG: ${{ inputs.tag_name }}
 
     steps:
+      - name: Require explicit fork publishing configuration
+        env:
+          PUBLISH_ENABLED: ${{ vars.NPM_PUBLISH_ENABLED }}
+          EXPECTED_PACKAGE: ${{ vars.NPM_PACKAGE_NAME }}
+        run: |
+          if [ "$PUBLISH_ENABLED" != "true" ] || [ -z "$EXPECTED_PACKAGE" ]; then
+            echo "::error::Publishing is disabled. Configure NPM_PUBLISH_ENABLED=true, NPM_PACKAGE_NAME, and npm Trusted Publishing for this fork before manually running this workflow."
+            exit 1
+          fi
+
       - name: Check out the released tag
         uses: actions/checkout@v6
         with:
@@ -43,17 +51,21 @@ jobs:
 
       - name: Verify tag and package version match
         shell: bash
+        env:
+          EXPECTED_PACKAGE: ${{ vars.NPM_PACKAGE_NAME }}
         run: |
           package_version="$(node -p 'require("./package.json").version')"
+          package_name="$(node -p 'require("./package.json").name')"
           test "${RELEASE_TAG}" = "v${package_version}"
+          test "${EXPECTED_PACKAGE}" = "${package_name}"
 
-      - name: Install the release layout
-        run: npm install --install-links=true
+      - name: Install from the pnpm lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Test and typecheck
         run: |
-          npm test
-          npm run typecheck
+          pnpm test
+          pnpm typecheck
 
       - name: Build and verify the exact package artifact
         id: package
@@ -63,21 +75,15 @@ jobs:
         run: |
           patterns="$RUNNER_TEMP/privacy-denylist.json"
           artifact="$RUNNER_TEMP/verified-package.tgz"
-          if [ -z "${PRIVACY_DENYLIST_JSON:-}" ]; then
-            echo "::error::LARK_BRIDGE_PRIVACY_DENYLIST_JSON is not configured"
-            exit 1
+          if [ -n "${PRIVACY_DENYLIST_JSON:-}" ]; then
+            umask 077
+            printf '%s' "$PRIVACY_DENYLIST_JSON" > "$patterns"
+            export LARK_BRIDGE_PRIVACY_DENYLIST_FILE="$patterns"
           fi
-          umask 077
-          printf '%s' "$PRIVACY_DENYLIST_JSON" > "$patterns"
           unset PRIVACY_DENYLIST_JSON
-          npm run build
-          node tools/pack-and-verify.mjs \
-            --patterns-file "$patterns" \
-            --output "$artifact"
-          echo "patterns=$patterns" >> "$GITHUB_OUTPUT"
+          pnpm build
+          node tools/pack-and-verify.mjs --output "$artifact"
           echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
 
       - name: Publish the verified artifact with npm Trusted Publishing
-        env:
-          LARK_BRIDGE_PRIVACY_DENYLIST_FILE: ${{ steps.package.outputs.patterns }}
         run: npm publish "${{ steps.package.outputs.artifact }}" --access public --tag latest

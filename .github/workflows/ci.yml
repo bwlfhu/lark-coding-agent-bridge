@@ -42,8 +42,7 @@ jobs:
         if: runner.os == 'Windows'
         # Pre-existing baseline failures in unchanged Windows tests
         # (O_NOFOLLOW, SIGTERM, command fixtures) are outside this PR scope.
-        # Run only the at-bot process-tree, command, prompt, and registration
-        # tests that this PR introduces or modifies.
+        # Include DSH's unit and launcher contracts without invoking a real model.
         run: >
           pnpm vitest run
           tests/unit/cli/at-bot-process.test.ts
@@ -51,6 +50,10 @@ jobs:
           tests/unit/cli/index-registration.test.ts
           tests/unit/agent/bridge-system-prompt.test.ts
           tests/unit/agent/adapter-system-prompt-wiring.test.ts
+          tests/unit/agent/dsh-argv.test.ts
+          tests/unit/agent/dsh-jsonl.test.ts
+          tests/unit/agent/dsh-patches.test.ts
+          tests/process/dsh-adapter.test.ts
 
       - name: Test (macOS / Ubuntu — full)
         if: runner.os != 'Windows'
@@ -72,29 +75,31 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Enable pnpm
+        run: corepack enable
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: pnpm
 
-      - name: Prepare npm release layout
-        run: npm install --install-links=true
+      - name: Install and build from the pnpm lockfile
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
 
-      - name: Pack, privacy-scan, and clean-install one artifact
+      - name: Public scan, pack, and clean-install one artifact
         shell: bash
         env:
           PRIVACY_DENYLIST_JSON: ${{ secrets.LARK_BRIDGE_PRIVACY_DENYLIST_JSON }}
         run: |
           patterns="$RUNNER_TEMP/privacy-denylist.json"
           artifact="$RUNNER_TEMP/verified-package.tgz"
-          if [ -z "${PRIVACY_DENYLIST_JSON:-}" ]; then
-            echo "::error::LARK_BRIDGE_PRIVACY_DENYLIST_JSON is not configured"
-            exit 1
+          if [ -n "${PRIVACY_DENYLIST_JSON:-}" ]; then
+            umask 077
+            printf '%s' "$PRIVACY_DENYLIST_JSON" > "$patterns"
+            export LARK_BRIDGE_PRIVACY_DENYLIST_FILE="$patterns"
           fi
-          umask 077
-          printf '%s' "$PRIVACY_DENYLIST_JSON" > "$patterns"
           unset PRIVACY_DENYLIST_JSON
-          npm run build
-          node tools/pack-and-verify.mjs \
-            --patterns-file "$patterns" \
-            --output "$artifact"
+          node tools/pack-and-verify.mjs --output "$artifact"
