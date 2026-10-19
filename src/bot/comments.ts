@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { CommentEvent, LarkChannel } from '@larksuite/channel';
-import { claudeCapability, codexCapability } from '../agent/capability';
+import { capabilityFor, isSessionIdAgent } from '../agent/capability';
 import type { AgentAdapter, AgentEvent } from '../agent/types';
 import { getAgentStopGraceMs } from '../config/schema';
 import type { Controls } from '../commands';
@@ -194,10 +194,7 @@ export async function handleCommentMention(deps: CommentDeps): Promise<void> {
     : false;
 
   try {
-    const capability =
-      controls.profileConfig.agentKind === 'codex'
-        ? codexCapability(controls.profileConfig)
-        : claudeCapability(controls.profileConfig);
+    const capability = capabilityFor(controls.profileConfig);
     const imageFileTokens = [...new Set(ctx.imageFileTokens ?? [])];
     if (imageFileTokens.length > 0 && capability.agentId !== 'codex') {
       log.info('comment', 'skip', {
@@ -324,7 +321,7 @@ export async function handleCommentMention(deps: CommentDeps): Promise<void> {
           })
         : undefined;
       let sessionId =
-        canResumeAgentSession && capability.agentId === 'claude'
+        canResumeAgentSession && isSessionIdAgent(capability.agentId)
           ? sessions.resumeFor(docSessionScopeId, cwdRealpath) ??
             sessions.resumeFor(legacyDocSessionScopeId, cwdRealpath)
           : undefined;
@@ -368,7 +365,7 @@ export async function handleCommentMention(deps: CommentDeps): Promise<void> {
         sessionId = undefined;
         threadId = undefined;
       } else if (promptDecision?.kind === 'resume') {
-        sessionId = capability.agentId === 'claude' ? promptDecision.agentSessionId : undefined;
+        sessionId = isSessionIdAgent(capability.agentId) ? promptDecision.agentSessionId : undefined;
         threadId = capability.agentId === 'codex' ? promptDecision.agentSessionId : undefined;
       }
       let promptAdmission:
@@ -471,7 +468,7 @@ export async function handleCommentMention(deps: CommentDeps): Promise<void> {
           const e = next.value;
           const agentSessionId =
             e.type === 'system'
-              ? capability.agentId === 'claude'
+              ? isSessionIdAgent(capability.agentId)
                 ? e.sessionId
                 : e.threadId
               : undefined;
@@ -496,7 +493,7 @@ export async function handleCommentMention(deps: CommentDeps): Promise<void> {
               });
               if (agentSessionId) {
                 const completeDurability =
-                  capability.agentId === 'claude' && e.type === 'system' && e.sessionId
+                  isSessionIdAgent(capability.agentId) && e.type === 'system' && e.sessionId
                     ? durability.then(() =>
                         sessions.setAwaited(docSessionScopeId, e.sessionId!, policy.cwdRealpath),
                       )

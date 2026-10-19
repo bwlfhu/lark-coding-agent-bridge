@@ -1,5 +1,5 @@
 import type { NormalizedMessage, ReactionEvent } from '@larksuite/channel';
-import { mkdir, writeFile, realpath } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDefaultProfileConfig } from '../../../src/config/profile-schema.js';
@@ -400,7 +400,7 @@ describe('topic message quote handling', () => {
 });
 
 describe('reaction continuation with activated prompt bindings', () => {
-  it.each((['claude', 'codex'] as const).flatMap(agentKind => [
+  it.each((['claude', 'codex', 'dsh'] as const).flatMap(agentKind => [
     { chatMode: 'p2p' as const, threadId: undefined },
     { chatMode: 'group' as const, threadId: undefined },
     { chatMode: 'group' as const, threadId: 'omt_topic' },
@@ -423,6 +423,20 @@ describe('reaction continuation with activated prompt bindings', () => {
     });
     await waitFor(() => h.agent.runs[0]?.waitForExitCalls === 1);
     expect(h.promptSessionService?.health.health).toBe('healthy');
+    await vi.waitFor(async () => {
+      const bindings = JSON.parse(await readFile(
+        join(h.tmp.profile, 'prompts', 'session-bindings.v1.json'),
+        'utf8',
+      ));
+      expect(bindings).toMatchObject({
+        records: {
+          [`${agentKind}:sess_reaction`]: {
+            agentId: agentKind,
+            ...(agentKind === 'codex' ? { threadId: 'sess_reaction' } : { sessionId: 'sess_reaction' }),
+          },
+        },
+      });
+    }, { interval: 20, timeout: 1500 });
     await h.channel.handlers.reaction?.({
       messageId: 'om_stream_1', operator: { openId: 'ou_user' },
       emojiType: 'GoGoGo', action: 'added', actionTime: Date.now(), raw: { operator_type: 'user' },
@@ -498,7 +512,7 @@ async function createHarness(options: {
   threadMessages?: Array<Record<string, unknown>>;
   agentEvents?: AgentEvent[];
   activatedPrompts?: boolean;
-  agentKind?: 'claude' | 'codex';
+  agentKind?: 'claude' | 'codex' | 'dsh';
 } = {}):Promise<{
   tmp: TmpProfile;
   channel: FakeLarkChannel & { handlers: MessageHandlerMap };
@@ -514,6 +528,7 @@ async function createHarness(options: {
   const baseProfileConfig = createDefaultProfileConfig({
     agentKind: options.agentKind ?? 'claude',
     ...(options.agentKind === 'codex' ? { codex: { binaryPath: '/test/codex' } } : {}),
+    ...(options.agentKind === 'dsh' ? { dsh: { binaryPath: '/test/dsh' } } : {}),
     accounts: {
       app: {
         id: 'cli_test',
@@ -536,6 +551,7 @@ async function createHarness(options: {
   const sessions = new SessionStore(join(tmp.profile, 'sessions.json'));
   const workspaces = new WorkspaceStore(join(tmp.profile, 'workspaces.json'));
   const agent = new FakeAgentAdapter({
+    id: options.agentKind ?? 'claude',
     events: options.agentEvents ?? [{ type: 'done', terminationReason: 'normal' }],
   });
   const channel = createFakeLarkChannel(options);
@@ -548,6 +564,7 @@ async function createHarness(options: {
     promptSessionService = await PromptSessionService.open({
       profileDir: tmp.profile, profile: 'test', sessionStore: sessions,
       sessionCatalog: new SessionCatalog(join(tmp.profile, 'catalog.json')),
+      legacySessionAgentId: options.agentKind === 'dsh' ? 'dsh' : 'claude',
     });
     await promptSessionService.prepareSession({
       identity: { scopeId: 'oc_activation', agentId: 'claude', cwdRealpath: workspace, policyFingerprint: 'activation' },

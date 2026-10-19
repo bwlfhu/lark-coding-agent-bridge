@@ -23,6 +23,34 @@ describe('PromptSessionService', () => {
     await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
   });
 
+  it('pins, resumes across reopen, and resets DSH without a Codex thread id', async () => {
+    const profileDir = await temporaryProfile();
+    const live = join(profileDir, 'prompts', 'groups', 'chat-1.md');
+    await mkdir(join(profileDir, 'prompts', 'groups'), { recursive: true });
+    await writeFile(live, 'DSH role v1');
+    const catalog = new SessionCatalog(join(profileDir, 'sessions.catalog.json'));
+    const sessions = new SessionStore(join(profileDir, 'sessions.json'));
+    const options = { profileDir, profile: 'dsh', legacySessionAgentId: 'dsh' as const,
+      sessionCatalog: catalog, sessionStore: sessions };
+    const id = { ...identity(), agentId: 'dsh' as const };
+    let service = await PromptSessionService.open(options);
+    const fresh = await service.prepareSession({ identity: id, origin: groupOrigin() });
+    if (fresh.kind !== 'fresh') throw new Error('expected fresh');
+    expect(fresh.systemPromptAddendum).toBe('DSH role v1');
+    await service.recordIdentifier({ identity: id, origin: groupOrigin(), binding: fresh.binding,
+      generation: fresh.generation, agentSessionId: 'session-dsh-1' });
+    expect(catalog.activeFor(id)).toMatchObject({ agentId: 'dsh', sessionId: 'session-dsh-1' });
+    await writeFile(live, 'DSH role v2');
+    service = await PromptSessionService.open(options);
+    await expect(service.prepareSession({ identity: id, origin: groupOrigin(),
+      existingAgentSessionId: 'session-dsh-1' })).resolves.toMatchObject({ kind: 'resume',
+      agentSessionId: 'session-dsh-1', systemPromptAddendum: 'DSH role v1' });
+    await service.resetSession({ identity: id, origin: groupOrigin() });
+    expect(catalog.activeFor(id)).toBeUndefined();
+    await expect(service.prepareSession({ identity: id, origin: groupOrigin() }))
+      .resolves.toMatchObject({ kind: 'fresh', systemPromptAddendum: 'DSH role v2' });
+  });
+
   it('opens an untouched profile as dormant without creating prompt state', async () => {
     const profileDir = await temporaryProfile();
     const service = await PromptSessionService.open({

@@ -147,7 +147,14 @@ describe('ui server (supervisor-backed)', () => {
     expect(cleared).toMatchObject({ reasoningEffort: 'default', fastMode: 'default' });
   });
 
-  it('saves custom model IDs and returns them as selectable options', async () => {
+  it.each(['claude', 'codex'] as const)('saves %s custom model IDs and returns them as selectable options', async (agentKind) => {
+    if (agentKind === 'codex') {
+      const root = (await loadRootConfig(configPath))!;
+      root.profiles.claude!.agentKind = 'codex';
+      root.profiles.claude!.codex = { binaryPath: 'codex' };
+      await saveRootConfig(root, configPath);
+      online.set('claude', await makeControls('claude'));
+    }
     const view = await json(await post('/api/config', handle.token, { model: 'provider/custom-v3' }));
     expect(view.model).toBe('provider/custom-v3');
     expect(view.models.some((m: { value: string }) => m.value === view.model)).toBe(true);
@@ -156,6 +163,53 @@ describe('ui server (supervisor-backed)', () => {
     expect((await post('/api/config', handle.token, { model: '--bad value' })).status).toBe(400);
     const cleared = await json(await post('/api/config', handle.token, { model: 'default' }));
     expect(cleared.model).toBe('default');
+  });
+
+  it.each([false, true])('rejects a DSH model override without a provider before changing an online=%s profile', async (live) => {
+    const root = (await loadRootConfig(configPath))!;
+    root.profiles.work = createDefaultProfileConfig({
+      agentKind: 'dsh', accounts: { app }, dsh: { binaryPath: 'dsh' },
+    });
+    await saveRootConfig(root, configPath);
+    if (live) online.set('work', await makeControls('work'));
+    const before = await readFile(configPath, 'utf8');
+
+    const rejected = await post('/api/config?profile=work', handle.token, {
+      model: 'custom-model', mode: 'team', larkCliIdentity: 'user-default',
+    });
+    expect(rejected.status).toBe(400);
+    expect((await json(rejected)).error).toContain('dsh.provider');
+    expect(await readFile(configPath, 'utf8')).toBe(before);
+    if (live) expect(online.get('work').cfg.preferences.model).toBeUndefined();
+
+    const defaulted = await post('/api/config?profile=work', handle.token, { model: 'default' });
+    expect(defaulted.status).toBe(200);
+    expect((await json(defaulted)).model).toBe('default');
+  });
+
+  it('saves only declared DSH models and preserves the last selection on rejection', async () => {
+    const root = (await loadRootConfig(configPath))!;
+    root.profiles.work = createDefaultProfileConfig({
+      agentKind: 'dsh', accounts: { app }, dsh: {
+        binaryPath: 'dsh', provider: {
+          id: 'test', api: 'openai-completions', apiKeyEnv: 'TEST_KEY',
+          baseURL: 'https://models.example/v1', models: [{ id: 'declared-model' }],
+        },
+      },
+    });
+    await saveRootConfig(root, configPath);
+    const selected = await post('/api/config?profile=work', handle.token, { model: 'declared-model' });
+    expect(selected.status).toBe(200);
+    expect((await json(selected)).model).toBe('declared-model');
+    const before = await readFile(configPath, 'utf8');
+
+    const rejected = await post('/api/config?profile=work', handle.token, { model: 'unknown-model' });
+    expect(rejected.status).toBe(400);
+    expect((await json(rejected)).error).toContain('dsh.provider.models');
+    expect(await readFile(configPath, 'utf8')).toBe(before);
+    const cleared = await post('/api/config?profile=work', handle.token, { model: 'default' });
+    expect(cleared.status).toBe(200);
+    expect((await json(cleared)).model).toBe('default');
   });
 
   it('applies a config change live to an online profile and persists it', async () => {

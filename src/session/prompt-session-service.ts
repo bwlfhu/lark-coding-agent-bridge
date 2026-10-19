@@ -32,6 +32,8 @@ import type { SessionStore } from './store.js';
 export interface PromptSessionServiceOptions {
   profileDir: string;
   profile: string;
+  /** Untyped legacy SessionStore rows belong to this backend; old callers default to Claude. */
+  legacySessionAgentId?: 'claude' | 'dsh';
   sessionCatalog: SessionCatalog;
   sessionStore: SessionStore;
   admissionController?: PromptRunAdmissionController;
@@ -208,7 +210,7 @@ export class PromptSessionService {
     }
     const record = snapshot.records[sessionKey];
     if (!record) throw new Error('active prompt binding record is missing');
-    const agentSessionId = record.agentId === 'claude' ? record.sessionId : record.threadId;
+    const agentSessionId = record.agentId !== 'codex' ? record.sessionId : record.threadId;
     if (
       record.profile !== this.options.profile ||
       record.agentId !== input.identity.agentId ||
@@ -253,9 +255,9 @@ export class PromptSessionService {
       const previous = draft.activeByIdentity[identityKey];
       if (previous && previous !== sessionKey) draft.retiredAt[previous] = this.now();
       draft.records[sessionKey] =
-        input.identity.agentId === 'claude'
+        input.identity.agentId !== 'codex'
           ? {
-              agentId: 'claude',
+              agentId: input.identity.agentId,
               sessionId: input.agentSessionId,
               profile: this.options.profile,
               cwdRealpath: input.identity.cwdRealpath,
@@ -344,7 +346,7 @@ export class PromptSessionService {
       ...input.identity,
       now: this.now(),
     });
-    if (input.identity.agentId === 'claude') {
+    if (input.identity.agentId !== 'codex') {
       await this.options.sessionStore.clearAwaited(input.identity.scopeId);
     }
     return { kind: 'reset', activated };
@@ -377,9 +379,9 @@ export class PromptSessionService {
       let record = draft.records[sessionKey];
       if (!record) {
         record =
-          input.identity.agentId === 'claude'
+          input.identity.agentId !== 'codex'
             ? {
-                agentId: 'claude',
+                agentId: input.identity.agentId,
                 sessionId: input.agentSessionId,
                 profile: this.options.profile,
                 cwdRealpath: input.identity.cwdRealpath,
@@ -512,12 +514,12 @@ export class PromptSessionService {
   ): Promise<void> {
     await this.options.sessionCatalog.upsertActiveAwaited({
       ...identity,
-      ...(identity.agentId === 'claude'
+      ...(identity.agentId !== 'codex'
         ? { sessionId: agentSessionId }
         : { threadId: agentSessionId }),
       now: this.now(),
     });
-    if (identity.agentId === 'claude') {
+    if (identity.agentId !== 'codex') {
       await this.options.sessionStore.setAwaited(
         identity.scopeId,
         agentSessionId,
@@ -638,7 +640,7 @@ export class PromptSessionService {
     };
     for (const entry of this.options.sessionCatalog.entries()) {
       if (entry.status !== 'active') continue;
-      const agentSessionId = entry.agentId === 'claude' ? entry.sessionId : entry.threadId;
+      const agentSessionId = entry.agentId !== 'codex' ? entry.sessionId : entry.threadId;
       if (!agentSessionId) continue;
       const sessionKey = agentSessionKey(entry.agentId, agentSessionId);
       const record = importedRecord({
@@ -661,10 +663,11 @@ export class PromptSessionService {
     }
     for (const [scopeId, entry] of this.options.sessionStore.entries()) {
       if (!entry.sessionId || !entry.cwd) continue;
-      const sessionKey = agentSessionKey('claude', entry.sessionId);
+      const agentId = this.options.legacySessionAgentId ?? 'claude';
+      const sessionKey = agentSessionKey(agentId, entry.sessionId);
       const record = importedRecord({
         profile: this.options.profile,
-        agentId: 'claude',
+        agentId,
         agentSessionId: entry.sessionId,
         scopeId,
         cwdRealpath: entry.cwd,
@@ -675,7 +678,7 @@ export class PromptSessionService {
         if (
           existing.cwdRealpath !== entry.cwd ||
           existing.origin.scopeId !== scopeId ||
-          existing.agentId !== 'claude'
+          existing.agentId !== agentId
         ) {
           throw new Error(`conflicting legacy migration evidence for ${sessionKey}`);
         }
@@ -685,7 +688,7 @@ export class PromptSessionService {
       initial.legacyActiveByScopeCwd[
         promptBindingLegacyIdentityKey({
           scopeId,
-          agentId: 'claude',
+          agentId,
           cwdRealpath: entry.cwd,
         })
       ] = sessionKey;
@@ -775,7 +778,7 @@ function assertOriginMatchesIdentity(
 
 interface ImportedRecordInput {
   profile: string;
-  agentId: 'claude' | 'codex';
+  agentId: 'claude' | 'codex' | 'dsh';
   agentSessionId: string;
   scopeId: string;
   cwdRealpath: string;
@@ -791,8 +794,8 @@ function importedRecord(input: ImportedRecordInput) {
     provenance: 'imported-active' as const,
     createdAt: input.createdAt,
   };
-  return input.agentId === 'claude'
-    ? { ...base, agentId: 'claude' as const, sessionId: input.agentSessionId }
+  return input.agentId !== 'codex'
+    ? { ...base, agentId: input.agentId, sessionId: input.agentSessionId }
     : { ...base, agentId: 'codex' as const, threadId: input.agentSessionId };
 }
 

@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CardActionEvent, NormalizedMessage } from '@larksuite/channel';
-import { claudeCapability, codexCapability } from '../../../src/agent/capability.js';
+import { capabilityFor } from '../../../src/agent/capability.js';
 import { ActiveRuns } from '../../../src/bot/active-runs.js';
 import type { ChatModeCache } from '../../../src/bot/chat-mode-cache.js';
 import { PendingQueue } from '../../../src/bot/pending-queue.js';
@@ -16,7 +16,7 @@ import { SessionStore } from '../../../src/session/store.js';
 import { WorkspaceStore } from '../../../src/workspace/store.js';
 import type { CodexThreadHistoryEntry } from '../../../src/session/codex-history.js';
 import type { SessionSummary } from '../../../src/session/history.js';
-import { createFakeAgent } from '../../helpers/fake-agent.js';
+import { FakeAgentAdapter } from '../../helpers/fake-agent.js';
 import { createFakeChannel, type FakeChannel } from '../../helpers/fake-channel.js';
 import { createTmpProfile, type TmpProfile } from '../../helpers/tmp-profile.js';
 
@@ -29,6 +29,7 @@ interface Harness {
   controls: Controls;
   identity: SessionCatalogIdentity;
   claudeHistory: SessionSummary[];
+  claudeHistoryProvider: NonNullable<CommandContext['claudeHistoryProvider']>;
   codexHistory: CodexThreadHistoryEntry[];
   activeRuns: ActiveRuns;
   pending: PendingQueue;
@@ -107,6 +108,57 @@ describe('agent-aware resume commands', () => {
       sessionId: 'sess-target',
     });
     expect(lastMarkdown(h.channel)).toContain('已完成');
+  });
+
+  it('resumes only the current DSH session through its card nonce without reading Claude history', async () => {
+    const h = await createHarness('dsh');
+    h.catalog.upsertActive({ ...h.identity, sessionId: 'session-dsh-current', now: 1000 });
+    h.catalog.upsertActive({
+      ...h.identity,
+      agentId: 'claude',
+      sessionId: 'claude-other-backend',
+      now: 1000,
+    });
+    h.claudeHistory.push(claudeSession('claude-history-secret', 'private Claude prompt', 1000));
+
+    await expect(h.run('/resume')).resolves.toBe(true);
+
+    expect(h.claudeHistoryProvider).not.toHaveBeenCalled();
+    const card = lastContent(h.channel);
+    const rendered = JSON.stringify(card);
+    expect(rendered).toContain('DeepSeek Harness');
+    expect(rendered).not.toContain('private Claude prompt');
+    expect(rendered).not.toContain('claude-history-secret');
+    expect(rendered).not.toContain('claude-other-backend');
+    expect(rendered).not.toContain('session-dsh-current');
+    const nonces = resumeArgsFromCard(card);
+    expect(nonces).toHaveLength(1);
+    expect(nonces[0]).not.toBe('session-dsh-current');
+
+    await h.dispatchResumeArg(nonces[0]!);
+
+    expect(h.sessions.resumeFor('chat-1', h.identity.cwdRealpath)).toBe('session-dsh-current');
+    expect(h.catalog.activeFor(h.identity)).toMatchObject({
+      agentId: 'dsh',
+      sessionId: 'session-dsh-current',
+    });
+    expect(h.catalog.activeFor({ ...h.identity, agentId: 'claude' })).toMatchObject({
+      sessionId: 'claude-other-backend',
+    });
+    expect(lastMarkdown(h.channel)).toContain('已完成');
+  });
+
+  it('does not fall back to Claude history when DSH has no current catalog session', async () => {
+    const h = await createHarness('dsh');
+    h.claudeHistory.push(claudeSession('claude-history-secret', 'private Claude prompt', 1000));
+
+    await expect(h.run('/resume')).resolves.toBe(true);
+
+    expect(h.claudeHistoryProvider).not.toHaveBeenCalled();
+    const card = lastContent(h.channel);
+    expect(JSON.stringify(card)).toContain('此 cwd 下没有历史会话');
+    expect(JSON.stringify(card)).not.toContain('private Claude prompt');
+    expect(resumeArgsFromCard(card)).toEqual([]);
   });
 
   it('accepts the current Codex thread without writing it into legacy SessionStore', async () => {
@@ -276,10 +328,11 @@ async function createHarness(
   const workspaces = new WorkspaceStore(join(tmp.profile, 'workspaces.json'));
   const catalog = new SessionCatalog(join(tmp.profile, 'session-catalog.json'));
   const claudeHistory: SessionSummary[] = [];
+  const claudeHistoryProvider = vi.fn(async () => claudeHistory);
   const codexHistory: CodexThreadHistoryEntry[] = [];
   const activeRuns = new ActiveRuns();
   const pending = new PendingQueue(60_000, () => {});
-  const agent = createFakeAgent();
+  const agent = new FakeAgentAdapter({ id: agentKind });
   const profileConfig = appConfig(agentKind);
   if (options.defaultWorkspace !== false) {
     profileConfig.workspaces.default = tmp.workspace;
@@ -299,7 +352,7 @@ async function createHarness(
   if (options.bindWorkspace !== false) {
     workspaces.setCwd('chat-1', tmp.workspace);
   }
-  const identity = await commandIdentity(agentKind, profileConfig, controls, tmp.workspace);
+  const identity = await commandIdentity(profileConfig, controls, tmp.workspace);
   const chatModeCache = {
     resolve: async () => 'p2p',
   } as unknown as ChatModeCache;
@@ -320,7 +373,7 @@ async function createHarness(
       agent,
       activeRuns,
       controls,
-      claudeHistoryProvider: async () => claudeHistory,
+      claudeHistoryProvider,
       codexHistoryProvider: async () => codexHistory,
     });
 
@@ -353,6 +406,7 @@ async function createHarness(
     controls,
     identity,
     claudeHistory,
+    claudeHistoryProvider,
     codexHistory,
     activeRuns,
     pending,
@@ -375,14 +429,13 @@ function claudeSession(
 }
 
 async function commandIdentity(
-  agentKind: AgentKind,
   profileConfig: ProfileConfig,
   controls: Controls,
   cwd: string,
 ): Promise<SessionCatalogIdentity> {
   const workspace = await resolveWorkingDirectory(cwd);
   if (!workspace.ok) throw new Error(workspace.userVisible);
-  const capability = agentKind === 'codex' ? codexCapability(profileConfig) : claudeCapability(profileConfig);
+  const capability = capabilityFor(profileConfig);
   const access = canUseDm(profileConfig, controls, 'ou-user');
   const policy = evaluateRunPolicy({
     scope: {
@@ -416,6 +469,7 @@ function appConfig(agentKind: AgentKind): ProfileConfig {
     accounts: { app: { id: 'app-id', secret: 'secret', tenant: 'feishu' } },
     access: { admins: ['ou-user'] },
     ...(agentKind === 'codex' ? { codex: { binaryPath: '/usr/local/bin/codex' } } : {}),
+    ...(agentKind === 'dsh' ? { dsh: { binaryPath: '/usr/local/bin/dsh' } } : {}),
   });
 }
 

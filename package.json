@@ -1,7 +1,7 @@
 {
-  "name": "@penn.qp/lark-channel-bridge",
-  "version": "0.7.1-qp.4",
-  "description": "Bridge Feishu/Lark messenger with local CLI coding agents",
+  "name": "@bwlfhu/lark-channel-bridge",
+  "version": "0.8.0-allcam.1",
+  "description": "Feishu/Lark bridge for local Codex, Claude Code and DeepSeek Harness",
   "type": "module",
   "packageManager": "pnpm@10.33.0",
   "publishConfig": {
@@ -10,12 +10,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/KeepSilenceQP/lark-coding-agent-bridge.git"
+    "url": "git+https://github.com/bwlfhu/lark-coding-agent-bridge.git"
   },
   "bugs": {
-    "url": "https://github.com/KeepSilenceQP/lark-coding-agent-bridge/issues"
+    "url": "https://github.com/bwlfhu/lark-coding-agent-bridge/issues"
   },
-  "homepage": "https://github.com/KeepSilenceQP/lark-coding-agent-bridge#readme",
+  "homepage": "https://github.com/bwlfhu/lark-coding-agent-bridge#readme",
   "bin": {
     "lark-channel-bridge": "bin/lark-channel-bridge.mjs"
   },
@@ -34,7 +34,9 @@
     "docs/runbooks/traex-codex-compatible-profile.md",
     "NOTICE.md",
     "LICENSE",
-    "vendor"
+    "vendor",
+    "docs/runbooks/dsh-profile.md",
+    "docs/maintenance.md"
   ],
   "scripts": {
     "dev": "tsup --watch",
@@ -51,7 +53,7 @@
     "privacy:tree": "node tools/check-privacy-denylist.mjs --tree --root .",
     "privacy:dist": "node tools/check-privacy-denylist.mjs --dist --root .",
     "verify:migration": "node tools/mixed-version-migration-acceptance.mjs",
-    "prepack": "node tools/check-privacy-denylist.mjs --tree --root . && node tools/check-privacy-denylist.mjs --dist --root . && node tools/check-npm-bundle.mjs",
+    "prepack": "node tools/check-public-package.mjs --tree --root . --with-private && node tools/check-public-package.mjs --dist --root . --with-private && node tools/check-npm-bundle.mjs",
     "verify:package": "npm run build && node tools/pack-and-verify.mjs",
     "prepare": "npm run build",
     "prepublishOnly": "npm run typecheck && npm run verify:package"
@@ -103,7 +105,7 @@
     "vitest": "^2.1.8"
   },
   "engines": {
-    "node": ">=20.12.0"
+    "node": ">=20.19.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -119,7 +121,9 @@
     "codex",
     "cli",
     "channel",
-    "bridge"
+    "bridge",
+    "deepseek",
+    "dsh"
   ],
   "license": "MIT"
 }

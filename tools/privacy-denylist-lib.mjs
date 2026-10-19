@@ -73,6 +73,17 @@ export async function loadPrivacyPatterns(patternFile) {
 }
 
 export async function scanPrivacyTarget({ mode, root, tarball, patterns }) {
+  return scanPackageEntries({
+    mode, root, tarball,
+    scanEntry: (content, path) => [
+      ...scanBuffer(Buffer.from(path, 'utf8'), path, patterns),
+      ...scanBuffer(content, path, patterns),
+    ],
+  });
+}
+
+/** Shared archive/tree traversal; each gate owns its matching rules. */
+export async function scanPackageEntries({ mode, root, tarball, scanEntry }) {
   if (mode === 'tarball') {
     if (!tarball) throw new Error('--tarball requires a .tgz path');
     const compressed = await readFile(resolve(tarball));
@@ -82,12 +93,12 @@ export async function scanPrivacyTarget({ mode, root, tarball, patterns }) {
     } catch (error) {
       throw new Error(`tarball is not a readable gzip archive: ${errorMessage(error)}`);
     }
-    return scanTarEntries(unpacked, patterns);
+    return scanTarEntries(unpacked, scanEntry);
   }
 
   const scanRoot = resolve(root ?? '.');
   if (mode === 'dist') {
-    return scanDirectory(join(scanRoot, 'dist'), scanRoot, patterns, new Set());
+    return scanDirectory(join(scanRoot, 'dist'), scanRoot, scanEntry, new Set());
   }
   if (mode !== 'tree') {
     throw new Error(`unsupported privacy scan mode: ${String(mode)}`);
@@ -108,7 +119,7 @@ export async function scanPrivacyTarget({ mode, root, tarball, patterns }) {
       const content = stat.isSymbolicLink()
         ? Buffer.from(await readlink(absolute), 'utf8')
         : await readFile(absolute);
-      findings.push(...scanBuffer(content, path, patterns));
+      findings.push(...scanEntry(content, path));
     }
     return findings;
   }
@@ -116,7 +127,7 @@ export async function scanPrivacyTarget({ mode, root, tarball, patterns }) {
   return scanDirectory(
     scanRoot,
     scanRoot,
-    patterns,
+    scanEntry,
     new Set(['.git', 'node_modules', 'dist']),
   );
 }
@@ -137,7 +148,7 @@ async function listGitVisibleFiles(root) {
   }
 }
 
-async function scanDirectory(directory, displayRoot, patterns, excludedNames) {
+async function scanDirectory(directory, displayRoot, scanEntry, excludedNames) {
   const findings = [];
   const entries = await readdir(directory, { withFileTypes: true }).catch((error) => {
     throw new Error(`privacy scan directory is unreadable: ${errorMessage(error)}`);
@@ -148,20 +159,20 @@ async function scanDirectory(directory, displayRoot, patterns, excludedNames) {
     const displayPath = relative(displayRoot, absolute) || entry.name;
     if (entry.isDirectory()) {
       findings.push(
-        ...await scanDirectory(absolute, displayRoot, patterns, excludedNames),
+        ...await scanDirectory(absolute, displayRoot, scanEntry, excludedNames),
       );
     } else if (entry.isSymbolicLink()) {
       findings.push(
-        ...scanBuffer(Buffer.from(await readlink(absolute), 'utf8'), displayPath, patterns),
+        ...scanEntry(Buffer.from(await readlink(absolute), 'utf8'), displayPath),
       );
     } else if (entry.isFile()) {
-      findings.push(...scanBuffer(await readFile(absolute), displayPath, patterns));
+      findings.push(...scanEntry(await readFile(absolute), displayPath));
     }
   }
   return findings;
 }
 
-function scanTarEntries(archive, patterns) {
+function scanTarEntries(archive, scanEntry) {
   const findings = [];
   let offset = 0;
   let entries = 0;
@@ -193,8 +204,7 @@ function scanTarEntries(archive, patterns) {
       pendingPath = tarString(content);
     } else if (type === '\0' || type === '0' || type === '') {
       entries += 1;
-      findings.push(...scanBuffer(Buffer.from(name, 'utf8'), `tarball:${name}`, patterns));
-      findings.push(...scanBuffer(content, `tarball:${name}`, patterns));
+      findings.push(...scanEntry(content, `tarball:${name}`));
     }
 
     offset = contentStart + Math.ceil(size / 512) * 512;

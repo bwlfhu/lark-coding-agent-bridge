@@ -13,6 +13,7 @@ import {
   normalizeModelSelection,
   resolveModelArg,
   supportedModels,
+  validateModelSelection,
 } from '../../../src/agent/models.js';
 
 describe('agent model catalog', () => {
@@ -72,6 +73,26 @@ describe('agent model catalog', () => {
     expect(claude.map((m) => m.value)).toContain('claude-opus-4-8');
     expect(codex.map((m) => m.value)).toContain('gpt-5-codex');
     expect(claude.map((m) => m.value)).not.toContain('gpt-5-codex');
+  });
+
+  it('offers only declared DSH models and validates overrides against that same catalog', () => {
+    const dsh = { binaryPath: 'dsh', provider: {
+      id: 'test', api: 'openai-completions', apiKeyEnv: 'TEST_KEY',
+      baseURL: 'https://models.example/v1', models: [{ id: 'declared-model', name: 'Declared' }],
+    } };
+    expect(supportedModels('dsh', 'unknown-model', home, dsh)).toEqual([
+      { value: DEFAULT_MODEL, label: '跟随 DSH 配置' },
+      { value: 'declared-model', label: 'Declared' },
+    ]);
+    expect(supportedModels('dsh', 'unknown-model', home)).toEqual([
+      { value: DEFAULT_MODEL, label: '跟随 DSH 配置' },
+    ]);
+    expect(() => validateModelSelection('dsh', DEFAULT_MODEL)).not.toThrow();
+    expect(() => validateModelSelection('dsh', 'declared-model', dsh)).not.toThrow();
+    expect(() => validateModelSelection('dsh', 'declared-model')).toThrow('dsh.provider');
+    expect(() => validateModelSelection('dsh', 'unknown-model', dsh)).toThrow('dsh.provider.models');
+    expect(() => validateModelSelection('codex', 'provider/custom-model')).not.toThrow();
+    expect(() => validateModelSelection('claude', 'provider/custom-model')).not.toThrow();
   });
 
   it('treats unset and the default sentinel as "use agent default"', () => {

@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import type { MutableProfileState } from '../config/config-ops';
 import type { AppPreferences } from '../config/schema';
 import type { AgentKind } from '../config/profile-schema';
+import type { ProfileConfig } from '../config/profile-schema';
 
 /**
  * Sentinel selection meaning "don't pass `--model`; let the agent CLI /
@@ -63,8 +64,11 @@ export function supportedModels(
   agentKind: AgentKind,
   current?: string,
   codexHome = process.env.CODEX_HOME || join(homedir(), '.codex'),
+  dsh?: ProfileConfig['dsh'],
 ): ModelOption[] {
-  let options = [...(agentKind === 'codex' ? CODEX_MODELS : CLAUDE_MODELS)];
+  let options: ModelOption[] = agentKind === 'dsh'
+    ? [{ value: DEFAULT_MODEL, label: '跟随 DSH 配置' }, ...(dsh?.provider?.models ?? []).map((model) => ({ value: model.id, label: model.name ?? model.id }))]
+    : [...(agentKind === 'codex' ? CODEX_MODELS : CLAUDE_MODELS)];
   if (agentKind === 'codex') {
     try {
       const cache = JSON.parse(readFileSync(join(codexHome, 'models_cache.json'), 'utf8'));
@@ -83,7 +87,7 @@ export function supportedModels(
     }
   }
   const selection = normalizeModelSelection(agentKind, current);
-  if (selection !== DEFAULT_MODEL && !options.some((m) => m.value === selection)) {
+  if (agentKind !== 'dsh' && selection !== DEFAULT_MODEL && !options.some((m) => m.value === selection)) {
     options.push({ value: selection, label: selection });
   }
   return [...new Map(options.map((m) => [m.value, m])).values()];
@@ -106,6 +110,21 @@ export function normalizeModelSelection(
 ): string {
   const trimmed = value?.trim();
   return isValidModelId(trimmed) ? trimmed : DEFAULT_MODEL;
+}
+
+/** Reject model overrides the selected backend cannot honor before saving them. */
+export function validateModelSelection(
+  agentKind: AgentKind,
+  selection: string,
+  dsh?: ProfileConfig['dsh'],
+): void {
+  if (agentKind !== 'dsh' || isDefaultModel(selection)) return;
+  if (!dsh?.provider) {
+    throw new Error('DSH 未配置 dsh.provider，只能选择 default 以跟随 DSH 配置。');
+  }
+  if (!dsh.provider.models.some((model) => model.id === selection)) {
+    throw new Error('请选择 dsh.provider.models 中已声明的 DSH 模型，或选择 default。');
+  }
 }
 
 /** Resolve the explicit model argument; only the default sentinel omits it. */

@@ -3,7 +3,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { writeFileAtomic } from '../platform/atomic-write.js';
 
-export type PromptAgentId = 'claude' | 'codex';
+export type PromptAgentId = 'claude' | 'codex' | 'dsh';
 export type AgentSessionKey = `${PromptAgentId}:${string}`;
 export type PromptBindingPhase = 'migrating' | 'active';
 export type PromptBindingProvenance = 'created' | 'imported-active' | 'adopted-legacy';
@@ -49,7 +49,7 @@ interface PromptBindingRecordBase {
 
 export type PromptBindingRecord =
   | (PromptBindingRecordBase & {
-      agentId: 'claude';
+      agentId: 'claude' | 'dsh';
       sessionId: string;
       threadId?: never;
     })
@@ -85,7 +85,7 @@ export interface PromptBindingLedgerDocument {
 const KEY_SEPARATOR = '\x1f';
 
 export function agentSessionKey(agentId: PromptAgentId, id: string): AgentSessionKey {
-  if (agentId !== 'claude' && agentId !== 'codex') throw new Error('invalid agentId');
+  if (agentId !== 'claude' && agentId !== 'codex' && agentId !== 'dsh') throw new Error('invalid agentId');
   assertKeyPart(id, 'agent session id');
   if (id.includes(':')) throw new Error('agent session id contains an invalid separator');
   return `${agentId}:${id}`;
@@ -93,7 +93,7 @@ export function agentSessionKey(agentId: PromptAgentId, id: string): AgentSessio
 
 export function promptBindingIdentityKey(input: PromptBindingIdentity): string {
   assertKeyPart(input.scopeId, 'identity scopeId');
-  if (input.agentId !== 'claude' && input.agentId !== 'codex') throw new Error('invalid identity agentId');
+  if (input.agentId !== 'claude' && input.agentId !== 'codex' && input.agentId !== 'dsh') throw new Error('invalid identity agentId');
   assertAbsolutePath(input.cwdRealpath, 'identity cwdRealpath');
   assertKeyPart(input.policyFingerprint, 'identity policyFingerprint');
   return [
@@ -106,7 +106,7 @@ export function promptBindingIdentityKey(input: PromptBindingIdentity): string {
 
 export function promptBindingLegacyIdentityKey(input: PromptBindingLegacyIdentity): string {
   assertKeyPart(input.scopeId, 'legacy identity scopeId');
-  if (input.agentId !== 'claude' && input.agentId !== 'codex') {
+  if (input.agentId !== 'claude' && input.agentId !== 'codex' && input.agentId !== 'dsh') {
     throw new Error('invalid legacy identity agentId');
   }
   assertAbsolutePath(input.cwdRealpath, 'legacy identity cwdRealpath');
@@ -252,7 +252,7 @@ function parseIdentityKey(
   if (parts.length !== (withPolicy ? 4 : 3)) throw new Error(`${context} has malformed identity key`);
   const [scopeId, agentId, cwdRealpath, policyFingerprint] = parts;
   assertKeyPart(scopeId, `${context} scopeId`);
-  if (agentId !== 'claude' && agentId !== 'codex') throw new Error(`${context} has invalid agentId`);
+  if (agentId !== 'claude' && agentId !== 'codex' && agentId !== 'dsh') throw new Error(`${context} has invalid agentId`);
   assertAbsolutePath(cwdRealpath, `${context} cwdRealpath`);
   if (withPolicy) assertKeyPart(policyFingerprint, `${context} policyFingerprint`);
   return {
@@ -269,7 +269,7 @@ function requireIndexedRecord(
   context: string,
 ): Record<string, unknown> {
   assertNonEmptyString(sessionKey, context);
-  if (!/^(claude|codex):[^:\x1f]+$/.test(sessionKey)) {
+  if (!/^(claude|codex|dsh):[^:\x1f]+$/.test(sessionKey)) {
     throw new Error(`${context} contains malformed agent session key`);
   }
   const record = records[sessionKey];
@@ -295,8 +295,8 @@ function assertRecordMatchesIdentity(
 function validateRecord(key: string, input: unknown): void {
   const record = assertDictionary(input, `record ${key}`);
   const agentId = record.agentId;
-  if (agentId !== 'claude' && agentId !== 'codex') throw new Error(`record ${key} has invalid agentId`);
-  const idField = agentId === 'claude' ? 'sessionId' : 'threadId';
+  if (agentId !== 'claude' && agentId !== 'codex' && agentId !== 'dsh') throw new Error(`record ${key} has invalid agentId`);
+  const idField = agentId !== 'codex' ? 'sessionId' : 'threadId';
   const id = record[idField];
   assertKeyPart(id, `record ${key}.${idField}`);
   if (key !== agentSessionKey(agentId, id as string)) {

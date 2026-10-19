@@ -3,8 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import type { LarkChannel, NormalizedMessage } from '@larksuite/channel';
-import { claudeCapability, codexCapability } from '../agent/capability';
-import { DEFAULT_MODEL, isValidModelId, modelCatalogHome, normalizeModelSelection, parseRunTuning } from '../agent/models';
+import { capabilityFor, type AgentCapabilityId } from '../agent/capability';
+import { DEFAULT_MODEL, isValidModelId, modelCatalogHome, normalizeModelSelection, validateModelSelection, parseRunTuning } from '../agent/models';
 import type { AgentAdapter } from '../agent/types';
 import type { ActiveRuns } from '../bot/active-runs';
 import {
@@ -203,7 +203,7 @@ type Handler = (args: string, ctx: CommandContext) => Promise<void>;
 
 interface ResumeCandidate {
   scopeId: string;
-  agentId: 'claude' | 'codex';
+  agentId: AgentCapabilityId;
   cwdRealpath: string;
   policyFingerprint: string;
   sessionId?: string;
@@ -1554,6 +1554,22 @@ async function handleResume(args: string, ctx: CommandContext): Promise<void> {
     return;
   }
 
+  if (ctx.agent.id === 'dsh') {
+    const identity = ctx.sessionCatalogIdentity;
+    const current = identity ? ctx.sessionCatalog?.activeFor(identity) : undefined;
+    const allowed = current?.sessionId && identity && (!ctx.promptSessionService ||
+      ctx.promptSessionService.canManualResume({ identity, origin: commandPromptOrigin(ctx),
+        agentSessionId: current.sessionId, updatedAt: current.updatedAt }));
+    const entries = allowed && current?.sessionId && identity ? [{
+      sessionId: issueResumeCandidate(identity, { sessionId: current.sessionId, updatedAt: current.updatedAt }),
+      preview: 'DeepSeek Harness · 当前桥接会话',
+      relTime: formatRelTime(current.updatedAt),
+      current: true,
+    }] : [];
+    await ctx.channel.send(ctx.msg.chatId, { card: resumeCard(cwd, entries) }, commandReplyOptions(ctx));
+    return;
+  }
+
   const sessions = await listClaudeResumeHistory(ctx, cwd, limit);
   const currentSession = ctx.sessions.getRaw(ctx.scope);
   const identity = ctx.sessionCatalogIdentity;
@@ -1617,7 +1633,7 @@ async function applyResume(sessionId: string, ctx: CommandContext): Promise<void
       } else {
         ctx.sessionCatalog.upsertActive({
           scopeId: ctx.sessionCatalogIdentity.scopeId,
-          agentId: 'claude',
+          agentId: ctx.sessionCatalogIdentity.agentId,
           cwdRealpath: ctx.sessionCatalogIdentity.cwdRealpath,
           policyFingerprint: ctx.sessionCatalogIdentity.policyFingerprint,
           sessionId: resolved.sessionId!,
@@ -1637,9 +1653,8 @@ async function applyResume(sessionId: string, ctx: CommandContext): Promise<void
       return;
     }
     ctx.activeRuns.interrupt(ctx.scope);
-    if (ctx.sessionCatalogIdentity.agentId === 'claude') {
-      ctx.sessions.set(ctx.scope, sessionId, ctx.sessionCatalogIdentity.cwdRealpath);
-    }
+    // Only session-id based agents reach here: Codex returned above.
+    ctx.sessions.set(ctx.scope, sessionId, ctx.sessionCatalogIdentity.cwdRealpath);
     await reply(ctx, RESUME_APPLIED_REPLY);
     return;
   }
@@ -1699,7 +1714,7 @@ function consumeResumeCandidate(
     candidate.agentId !== identity.agentId ||
     candidate.cwdRealpath !== identity.cwdRealpath ||
     candidate.policyFingerprint !== identity.policyFingerprint ||
-    (identity.agentId === 'claude' && !candidate.sessionId) ||
+    (identity.agentId !== 'codex' && !candidate.sessionId) ||
     (identity.agentId === 'codex' && !candidate.threadId)
   ) {
     return undefined;
@@ -2127,10 +2142,7 @@ async function handleDoctor(args: string, ctx: CommandContext): Promise<void> {
   }
   doctorLastByOperator.set(rateKey, now);
 
-  const capability =
-    ctx.controls.profileConfig.agentKind === 'codex'
-      ? codexCapability(ctx.controls.profileConfig)
-      : claudeCapability(ctx.controls.profileConfig);
+  const capability = capabilityFor(ctx.controls.profileConfig);
   const policy = evaluateRunPolicy({
     scope: {
       source: 'im',
@@ -3111,16 +3123,22 @@ async function showConfigForm(ctx: CommandContext): Promise<void> {
   const access = ctx.controls.profileConfig.access;
   const sidecar = await readUiSidecar(commandProfilePaths(ctx).hostUiFile).catch(() => undefined);
   const consoleUrl = sidecar && isAlive(sidecar.pid) ? sidecar.url : undefined;
+  let model = normalizeModelSelection(ctx.controls.profileConfig.agentKind, ctx.controls.cfg.preferences?.model);
+  try {
+    validateModelSelection(ctx.controls.profileConfig.agentKind, model, ctx.controls.profileConfig.dsh);
+  } catch {
+    // Keep an outdated DSH selection from invalidating the entire settings card.
+    // Saving the default lets the user repair it without editing config by hand.
+    model = DEFAULT_MODEL;
+  }
   const card = configFormCard({
     modelCatalogHome: modelCatalogHome(ctx.controls),
+    dsh: ctx.controls.profileConfig.dsh,
     reasoningEffort: ctx.controls.cfg.preferences?.reasoningEffort,
     fastMode: ctx.controls.cfg.preferences?.fastMode,
     agentKind: ctx.controls.profileConfig.agentKind,
     mode: ctx.controls.profileConfig.mode,
-    model: normalizeModelSelection(
-      ctx.controls.profileConfig.agentKind,
-      ctx.controls.cfg.preferences?.model,
-    ),
+    model,
     messageReply: getMessageReplyMode(ctx.controls.cfg),
     showToolCalls: getShowToolCalls(ctx.controls.cfg),
     cotMessages: getCotMessages(ctx.controls.cfg),
@@ -3191,6 +3209,7 @@ async function submitConfig(ctx: CommandContext): Promise<void> {
   const model = modelSelection === DEFAULT_MODEL ? undefined : modelSelection;
   let tuning: Pick<AppPreferences, 'reasoningEffort' | 'fastMode'>;
   try {
+    validateModelSelection(agentKind, modelSelection, ctx.controls.profileConfig.dsh);
     tuning = parseRunTuning(agentKind, ctx.controls.cfg.preferences ?? {}, fv.reasoning_effort, fv.fast_mode);
   } catch (error) {
     await reply(ctx, error instanceof Error ? error.message : '运行设置无效');

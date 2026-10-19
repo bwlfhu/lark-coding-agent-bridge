@@ -379,6 +379,7 @@ export class Supervisor {
       profile: appPaths.profile,
       sessionCatalog,
       sessionStore: sessions,
+      legacySessionAgentId: profileConfig.agentKind === 'dsh' ? 'dsh' : 'claude',
     });
     if (promptSessionService.health.health === 'healthy') {
       await promptSessionService.gc().catch((err) =>
