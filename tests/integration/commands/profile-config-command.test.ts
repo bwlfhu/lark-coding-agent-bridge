@@ -147,9 +147,17 @@ describe('profile-aware account and config commands', () => {
     await h.command('/config submit', { reasoning_effort: 'ultra', fast_mode: 'on' });
     const saved = await waitForRoot(h.rootDir, (r) => r.profiles.claude?.preferences.fastMode === 'on');
     expect(saved.profiles.claude?.preferences.reasoningEffort).toBe('ultra');
+    // Card commands acknowledge before their background save finishes updating
+    // live controls. Wait for that boundary before submitting the next form.
+    await vi.waitFor(() => expect(h.controls.cfg.preferences).toMatchObject({
+      reasoningEffort: 'ultra', fastMode: 'on',
+    }));
     await h.command('/config submit', { fast_mode: 'off' });
     const standard = await waitForRoot(h.rootDir, (r) => r.profiles.claude?.preferences.fastMode === 'off');
     expect(standard.profiles.claude?.preferences.reasoningEffort).toBe('ultra');
+    await vi.waitFor(() => expect(h.controls.cfg.preferences).toMatchObject({
+      reasoningEffort: 'ultra', fastMode: 'off',
+    }));
     await h.command('/config submit', { reasoning_effort: 'default', fast_mode: 'default' });
     const cleared = await waitForRoot(h.rootDir, (r) => r.profiles.claude?.preferences.fastMode === undefined);
     expect(cleared.profiles.claude?.preferences.reasoningEffort).toBeUndefined();
@@ -168,6 +176,50 @@ describe('profile-aware account and config commands', () => {
     const cleared = await waitForRoot(h.rootDir, (candidate) =>
       candidate.profiles.claude?.preferences.model === undefined,
     );
+    expect(cleared.profiles.claude?.preferences.model).toBeUndefined();
+  });
+
+  it('rejects a DSH custom model without a provider before saving or changing CLI identity', async () => {
+    const h = await createHarness({ agentKind: 'dsh' });
+    const before = await readRoot(h.rootDir);
+    await h.command('/config submit', { custom_model: 'custom-model', lark_cli_identity: 'user-default' });
+
+    expect(JSON.stringify(h.channel.sent.at(-1)?.content)).toContain('dsh.provider');
+    expect(await readRoot(h.rootDir)).toEqual(before);
+    expect(identityPolicyMocks.applyLarkCliIdentityPolicy).not.toHaveBeenCalled();
+  });
+
+  it('opens a valid DSH settings card when a saved model is no longer declared', async () => {
+    const h = await createHarness({ agentKind: 'dsh', preferences: { model: 'outdated-model' } });
+    await h.command('/config');
+    const findModel = (value: unknown): Record<string, unknown> | undefined => {
+      if (!value || typeof value !== 'object') return undefined;
+      const record = value as Record<string, unknown>;
+      if (record.name === 'model') return record;
+      return Object.values(record).map(findModel).find(Boolean);
+    };
+    expect(findModel(h.channel.sent.at(-1)?.content)).toMatchObject({ initial_option: 'default' });
+    expect(JSON.stringify(h.channel.sent.at(-1)?.content)).not.toContain('outdated-model');
+  });
+
+  it('accepts declared DSH models, rejects undeclared custom IDs, and clears to default', async () => {
+    vi.useFakeTimers();
+    const h = await createHarness({ agentKind: 'dsh', dsh: {
+      binaryPath: 'dsh', provider: {
+        id: 'test', api: 'openai-completions', apiKeyEnv: 'TEST_KEY',
+        baseURL: 'https://models.example/v1', models: [{ id: 'declared-model' }],
+      },
+    } });
+    await h.command('/config submit', { model: 'declared-model' });
+    await waitForRoot(h.rootDir, (r) => r.profiles.claude?.preferences.model === 'declared-model');
+    const before = await readRoot(h.rootDir);
+
+    await h.command('/config submit', { custom_model: 'unknown-model' });
+    expect(JSON.stringify(h.channel.sent.at(-1)?.content)).toContain('dsh.provider.models');
+    expect(await readRoot(h.rootDir)).toEqual(before);
+
+    await h.command('/config submit', { model: 'default', custom_model: '' });
+    const cleared = await waitForRoot(h.rootDir, (r) => r.profiles.claude?.preferences.model === undefined);
     expect(cleared.profiles.claude?.preferences.model).toBeUndefined();
   });
 
@@ -601,11 +653,13 @@ describe('profile-aware account and config commands', () => {
 });
 
 async function createHarness(options: {
-  agentKind?: 'claude' | 'codex';
+  agentKind?: 'claude' | 'codex' | 'dsh';
+  dsh?: RootConfig['profiles'][string]['dsh'];
   preferences?: RootConfig['profiles'][string]['preferences'];
 } = {}): Promise<{
   rootDir: string;
   channel: ReturnType<typeof createFakeChannel>;
+  controls: Controls;
   command(content: string, formValue?: Record<string, unknown>): Promise<boolean>;
 }> {
   const rootDir = await mkdtemp(join(tmpdir(), 'bridge-profile-config-command-'));
@@ -616,7 +670,8 @@ async function createHarness(options: {
   const profileConfig = root.profiles.claude!;
   if (options.agentKind) {
     profileConfig.agentKind = options.agentKind;
-    profileConfig.codex = { binaryPath: 'codex' };
+    if (options.agentKind === 'codex') profileConfig.codex = { binaryPath: 'codex' };
+    if (options.agentKind === 'dsh') profileConfig.dsh = options.dsh ?? { binaryPath: 'dsh' };
     await writeJson(resolveAppPaths({ rootDir }).configFile, root);
   }
   const appPaths = resolveAppPaths({ rootDir, profile: 'claude' });
@@ -639,6 +694,7 @@ async function createHarness(options: {
   return {
     rootDir,
     channel,
+    controls,
     command: (content: string, formValue?: Record<string, unknown>) =>
       tryHandleCommand({
         channel: channel as unknown as CommandContext['channel'],

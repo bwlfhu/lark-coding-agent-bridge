@@ -23,6 +23,12 @@ describe('start runtime agent factory', () => {
     expect(agent.displayName).toBe('Claude Code');
   });
 
+  it('creates DSH from the same factory used by foreground start', () => {
+    const profile = createDefaultProfileConfig({ agentKind: 'dsh', accounts: appAccount(),
+      dsh: { binaryPath: '/usr/local/bin/dsh' } });
+    expect(createRuntimeAgent(profile, { profileDir: tmpdir() }).id).toBe('dsh');
+  });
+
   it('creates CodexAdapter from canonical workspace permissions', () => {
     const profile = createDefaultProfileConfig({
       agentKind: 'codex',

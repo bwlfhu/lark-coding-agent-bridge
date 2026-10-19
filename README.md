@@ -1,11 +1,17 @@
 # lark-channel-bridge
 
-A lightweight bot that bridges Feishu / Lark messenger with your local Claude Code or Codex CLI. Run one command, scan a QR code to bind a PersonalAgent app, and talk to your local coding agent from chat.
+A lightweight bot that bridges Feishu / Lark messenger with your local Claude Code, Codex CLI or DeepSeek Harness. Run one command, scan a QR code to bind a PersonalAgent app, and talk to your local coding agent from chat.
 
 > **Fork notice:** This repository is a customized fork of
 > [`zarazhangrui/lark-coding-agent-bridge`](https://github.com/zarazhangrui/lark-coding-agent-bridge).
 > The original project and this fork are distributed under the MIT License. See
 > [NOTICE.md](./NOTICE.md) and [LICENSE](./LICENSE) for attribution and license terms.
+
+## bwlfhu maintained integration
+
+Based on KeepSilenceQP `0.7.1-qp.4`, preserving streaming-card recovery, Codex final-reply handling and group-prompt session binding, with the **DeepSeek Harness (DSH)** backend selectively adapted from RoverTang. Claude Code, Codex and DSH retain separate session identities. Interrupted tasks are never automatically replayed.
+
+Version `0.8.0-allcam.1` is installed from source or a verified local tarball; **no npm release has been published**. See the [DSH runbook](docs/runbooks/dsh-profile.md) for setup, existing credentials, local compatible APIs and limitations, and [maintenance guide](docs/maintenance.md) for future updates. The upstream integration history below is retained from KeepSilenceQP for provenance.
 
 ### Upstream integration record
 
@@ -68,7 +74,7 @@ Lark coding sessions:
 | **Reaction-driven control** | Reactions on relevant messages can approve a proposed next step, request more explanation, confirm that a manual step is complete, or stop the active work chain. The Bridge supplies the target message and reconciled Reaction state to the agent, persists deduplication state, and keeps unmapped emoji available for contextual interpretation. | Treating a Reaction as an isolated emoji could repeat old work, lose the message it referred to, or turn a stop signal into another agent run. |
 | **Reliable progress and final replies** | COT/progress output is separated from the dedicated final reply in both card and plain-text modes. Topic routing, expired CardKit streams, stale readback, empty or persisted Codex terminal turns, and markdown-render failures all have targeted recovery paths. | Long tasks could leave a stale card/footer, repeat earlier content, fall back unnecessarily, reply outside the topic, or finish locally without delivering the final answer. |
 | **Deferred self-restart with receipt** | A same-profile restart waits for the current reply and active runs to drain, restarts through a detached helper, and sends exactly one success or failure receipt back to the original chat or topic. | Self-deployment could terminate the bot mid-reply, and users had no reliable evidence that the replacement process connected successfully. |
-| **Maintained Channel and release artifact** | Releases bundle the maintained `@larksuite/channel` `0.6.0-qp.1`, based on upstream 0.6.0 while preserving the CardKit stream-rollover fix, and are published as a self-contained `@penn.qp/lark-channel-bridge` package plus a matching GitHub Release. | A rollover could resend the full earlier card before opening the next card, producing repeated messages; file-based Channel dependencies could also be missing from a published package. |
+| **Maintained Channel and release artifact** | Releases bundle the maintained `@larksuite/channel` `0.6.0-qp.1`, based on upstream 0.6.0 while preserving the CardKit stream-rollover fix, originally released by KeepSilenceQP under `@penn.qp/lark-channel-bridge`; this fork uses its own package identity. | A rollover could resend the full earlier card before opening the next card, producing repeated messages; file-based Channel dependencies could also be missing from a published package. |
 
 ### Fork capability reference
 
@@ -129,7 +135,7 @@ For a product walkthrough, see the [Feishu document](https://larkcommunity.feish
 
 ## What it does
 
-- Forwards Feishu / Lark messages to local Claude Code or Codex CLI. Send a DM directly, or `@bot` in a group.
+- Forwards Feishu / Lark messages to local Claude Code, Codex CLI or DeepSeek Harness. Send a DM directly, or `@bot` in a group.
 - **Streaming card**: text replies and tool calls update on one Lark card in real time.
 - **COT process messages**: optionally send a process message with agent progress text and tool calls, then send the final answer separately.
 - **Session continuity**: each chat or topic keeps its own session, while document comments share one session per document and reply in the triggering comment thread.
@@ -140,22 +146,25 @@ For a product walkthrough, see the [Feishu document](https://larkcommunity.feish
 
 ## Prerequisites
 
-- Node.js **>= 20.12.0**
+- Node.js **>= 20.19.0**
 - At least one local agent installed and logged in:
   - Claude Code: `claude`, see https://docs.anthropic.com/en/docs/claude-code/quickstart
   - Codex CLI: `codex`, see https://developers.openai.com/codex/cli
+  - DeepSeek Harness: `dsh`, configured for headless execution (see the DSH runbook).
 - A Feishu / Lark **PersonalAgent** app. The first-run QR wizard can create and bind one for you.
 
 ## Install
 
 ```bash
-npm i -g @penn.qp/lark-channel-bridge
-# or
-pnpm add -g @penn.qp/lark-channel-bridge
+git clone https://github.com/bwlfhu/lark-coding-agent-bridge.git
+cd lark-coding-agent-bridge
+corepack enable
+pnpm install --frozen-lockfile
+pnpm build
+node bin/lark-channel-bridge.mjs run
 ```
 
-The package is published from this fork under the `@penn.qp` scope. The
-installed CLI command remains `lark-channel-bridge`.
+For tarball installation and DSH profiles, see the [runbook](docs/runbooks/dsh-profile.md). The CLI command remains `lark-channel-bridge`.
 
 ## First run
 

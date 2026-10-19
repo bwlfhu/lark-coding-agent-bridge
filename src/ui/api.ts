@@ -42,7 +42,7 @@ import {
   type ProfileAccess,
   type ProfileMode,
 } from '../config/profile-schema';
-import { DEFAULT_MODEL, isValidModelId, modelCatalogHome, normalizeModelSelection, supportedModels, parseRunTuning, REASONING_OPTIONS, FAST_MODE_OPTIONS } from '../agent/models';
+import { DEFAULT_MODEL, isValidModelId, modelCatalogHome, normalizeModelSelection, supportedModels, validateModelSelection, parseRunTuning, REASONING_OPTIONS, FAST_MODE_OPTIONS } from '../agent/models';
 import { log } from '../core/logger';
 import { HttpError } from './http';
 import type { UiRuntime } from './types';
@@ -94,7 +94,7 @@ export function buildConfigView(state: MutableProfileState, live = false): Confi
     fastMode: state.cfg.preferences?.fastMode ?? 'default',
     reasoningOptions: REASONING_OPTIONS,
     fastModeOptions: FAST_MODE_OPTIONS,
-    models: supportedModels(agentKind, state.cfg.preferences?.model, modelCatalogHome(state)),
+    models: supportedModels(agentKind, state.cfg.preferences?.model, modelCatalogHome(state), state.profileConfig.dsh),
     messageReply: getMessageReplyMode(state.cfg),
     showToolCalls: getShowToolCalls(state.cfg),
     cotMessages: getCotMessages(state.cfg),
@@ -232,6 +232,7 @@ function parseConfigBody(state: MutableProfileState, body: unknown): ParsedConfi
   const model = modelSelection === DEFAULT_MODEL ? undefined : modelSelection;
   let tuning: Pick<AppPreferences, 'reasoningEffort' | 'fastMode'>;
   try {
+    validateModelSelection(agentKind, modelSelection, state.profileConfig.dsh);
     tuning = parseRunTuning(agentKind, state.cfg.preferences ?? {}, fv.reasoningEffort, fv.fastMode);
   } catch (error) {
     throw new ApiError(400, error instanceof Error ? error.message : '运行设置无效');

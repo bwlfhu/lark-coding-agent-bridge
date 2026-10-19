@@ -1,11 +1,17 @@
 # lark-channel-bridge
 
-把飞书 / Lark 消息和本地 Claude Code 或 Codex CLI 打通的轻量 bot。用一条命令启动，扫码绑定 PersonalAgent 应用，然后在飞书里和本机编程助手对话，让它读图、处理文件、改代码。
+把飞书 / Lark 消息和本地 Claude Code、Codex CLI 或 DeepSeek Harness 打通的轻量 bot。用一条命令启动，扫码绑定 PersonalAgent 应用，然后在飞书里和本机编程助手对话，让它读图、处理文件、改代码。
 
 > **Fork 声明：**本仓库是
 > [`zarazhangrui/lark-coding-agent-bridge`](https://github.com/zarazhangrui/lark-coding-agent-bridge)
 > 的定制 fork。原项目与本 fork 均按 MIT License 发布；归属和许可说明见
 > [NOTICE.md](./NOTICE.md) 与 [LICENSE](./LICENSE)。
+
+## bwlfhu 维护版
+
+本仓库基于 KeepSilenceQP `0.7.1-qp.4`，保留流式卡片恢复、Codex 最终回复处理和群提示词会话绑定，并选择性移植 RoverTang 的 **DeepSeek Harness（DSH）** 后端。支持 Claude Code、Codex、DSH 三种独立后端，不会自动重放中断的任务。
+
+当前版本 `0.8.0-allcam.1` 从源码或经过验证的本地 tarball 安装；**尚未发布 npm 包**。DSH 的安装、现有凭据复用、本地兼容 API 与限制见 [DSH 部署说明](docs/runbooks/dsh-profile.md)，后续同步和发布流程见 [维护说明](docs/maintenance.md)。以下上游集成记录来自 KeepSilenceQP，保留作来源追溯。
 
 ### 上游集成记录
 
@@ -63,7 +69,7 @@ no-content/最终回复修改则做了适配，保留本 Fork 的单流最终回
 | **Reaction 驱动控制** | 对相关消息添加 Reaction，可以同意下一步、要求进一步解释、确认手动步骤已完成，或停止当前工作链。Bridge 会把目标消息与校准后的 Reaction 状态一并交给 Agent，持久化防重状态，并保留未预埋 emoji 供 Agent 结合上下文判断。 | 若把 Reaction 当成孤立 emoji，可能重复旧任务、丢失被回应消息，或把停止信号错误地启动成新一轮 Agent。 |
 | **可靠的过程消息与最终回复** | COT/过程输出和最终答案彻底分开，卡片与纯文本模式都单独发送最终回复；同时补齐话题路由、CardKit 流过期、陈旧回读、Codex 空终态/持久化终态和 Markdown 渲染失败的恢复路径。 | 长任务可能留下陈旧卡片或运行中 footer、重复旧内容、误触发 fallback、回复跑出话题，或者本地已经结束却没有把最终答案送到飞书。 |
 | **延后自重启与结果回执** | 同 profile 自重启会等待当前回复和活跃任务排空，再由 detached helper 重启，并向原群、原话题或原私聊发送且只发送一条成功/失败回执。 | Bot 自部署时可能在回复中途把自己终止，重启后用户也无法确定新进程是否真正连接成功。 |
-| **维护版 Channel 与可安装产物** | Release 内置维护版 `@larksuite/channel` `0.6.0-qp.1`，基于上游 0.6.0 并保留 CardKit stream rollover 修复，以自包含的 `@penn.qp/lark-channel-bridge` npm 包和对应 GitHub Release 发布。 | rollover 可能先把前一张卡完整重发一遍再创建下一张卡，形成重复消息；file dependency 也可能在发布产物中丢失。 |
+| **维护版 Channel 与可安装产物** | Release 内置维护版 `@larksuite/channel` `0.6.0-qp.1`，基于上游 0.6.0 并保留 CardKit stream rollover 修复，KeepSilenceQP 原版曾以自包含的 `@penn.qp/lark-channel-bridge` npm 包发布；本维护版采用独立包身份。 | rollover 可能先把前一张卡完整重发一遍再创建下一张卡，形成重复消息；file dependency 也可能在发布产物中丢失。 |
 
 ### Fork 扩展能力速查
 
@@ -130,22 +136,25 @@ Reaction 输入会经过权限校验、状态校准和持久化，并与目标�
 
 ## 前置条件
 
-- Node.js **>= 20.12.0**
+- Node.js **>= 20.19.0**
 - 本机至少安装并登录一个 agent：
   - Claude Code：`claude`，安装说明：https://docs.anthropic.com/en/docs/claude-code/quickstart
   - Codex CLI：`codex`，安装说明：https://developers.openai.com/codex/cli
+  - DeepSeek Harness：`dsh`，已配置 headless 执行（见 DSH 部署说明）。
 - 一个飞书 / Lark PersonalAgent 应用。首次启动的扫码向导可以帮你创建并绑定。
 
 ## 安装
 
 ```bash
-npm i -g @penn.qp/lark-channel-bridge
-# 或
-pnpm add -g @penn.qp/lark-channel-bridge
+git clone https://github.com/bwlfhu/lark-coding-agent-bridge.git
+cd lark-coding-agent-bridge
+corepack enable
+pnpm install --frozen-lockfile
+pnpm build
+node bin/lark-channel-bridge.mjs run
 ```
 
-该包由本 fork 通过 `@penn.qp` scope 发布；安装后的 CLI 命令仍为
-`lark-channel-bridge`。
+打包安装与 DSH profile 配置见 [部署说明](docs/runbooks/dsh-profile.md)。CLI 命令保持 `lark-channel-bridge`。
 
 ## 首次启动
 

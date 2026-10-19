@@ -5,6 +5,7 @@ import type {
   GroupResponseMode,
   LarkCliIdentityPreset,
   ProfileMode,
+  ProfileConfig,
 } from '../config/profile-schema';
 import type { CotMessagesMode, MessageReplyMode } from '../config/schema';
 
@@ -16,6 +17,7 @@ export interface ConfigFormOpts {
   /** Current model selection, including IDs absent from the discovery cache. */
   model: string;
   modelCatalogHome?: string;
+  dsh?: ProfileConfig['dsh'];
   reasoningEffort?: string;
   fastMode?: string;
   messageReply: MessageReplyMode;
@@ -192,7 +194,7 @@ export function configFormCard(opts: ConfigFormOpts): object {
               tag: 'select_static',
               name: 'model',
               initial_option: opts.model,
-              options: supportedModels(opts.agentKind, opts.model, opts.modelCatalogHome).map((m) => ({
+              options: supportedModels(opts.agentKind, opts.model, opts.modelCatalogHome, opts.dsh).map((m) => ({
                 text: { tag: 'plain_text', content: m.label },
                 value: m.value,
               })),

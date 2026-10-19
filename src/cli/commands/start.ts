@@ -1,9 +1,9 @@
+import { createRuntimeAgent } from '../../runtime/agent-runtime';
+export { createRuntimeAgent } from '../../runtime/agent-runtime';
 import dns from 'node:dns';
 import os from 'node:os';
 import { createInterface } from 'node:readline';
 import pkg from '../../../package.json';
-import { ClaudeAdapter } from '../../agent/claude/adapter';
-import { CodexAdapter } from '../../agent/codex/adapter';
 import {
   AgentPreflightError,
   formatAgentPreflightDiagnostic,
@@ -162,6 +162,7 @@ export async function runStart(opts: StartOptions): Promise<void> {
             profile: appPaths.profile,
             sessionCatalog,
             sessionStore: sessions,
+            legacySessionAgentId: profileConfig.agentKind === 'dsh' ? 'dsh' : 'claude',
           });
           if (promptSessionService.health.health === 'healthy') {
             await promptSessionService
@@ -560,45 +561,6 @@ export function assertReconnectAgentKindUnchanged(
   }
 }
 
-export function createRuntimeAgent(
-  profileConfig: ProfileConfig,
-  appPaths: Pick<AppPaths, 'profileDir'> &
-    Partial<Pick<AppPaths, 'rootDir' | 'profile' | 'configFile' | 'larkCliConfigDir' | 'larkCliSourceConfigFile'>> & {
-      configPath?: string;
-    },
-): AgentAdapter {
-  const larkChannelConfigPath = appPaths.configPath ?? appPaths.configFile;
-  const larkChannel =
-    appPaths.rootDir && appPaths.profile
-      ? {
-          profile: appPaths.profile,
-          rootDir: appPaths.rootDir,
-          bridgePid: process.pid,
-          ...(larkChannelConfigPath ? { configPath: larkChannelConfigPath } : {}),
-          ...(appPaths.larkCliConfigDir ? { larkCliConfigDir: appPaths.larkCliConfigDir } : {}),
-          ...(appPaths.larkCliSourceConfigFile
-            ? { larkCliSourceConfigFile: appPaths.larkCliSourceConfigFile }
-            : {}),
-        }
-      : undefined;
-  if (profileConfig.agentKind === 'codex') {
-    const codex = profileConfig.codex;
-    if (!codex?.binaryPath) {
-      throw new Error('codex profile requires codex.binaryPath');
-    }
-    return new CodexAdapter({
-      binary: codex.binaryPath,
-      profileStateDir: appPaths.profileDir,
-      ...(codex.codexHome ? { codexHome: codex.codexHome } : {}),
-      inheritCodexHome: codex.inheritCodexHome === true,
-      ignoreUserConfig: codex.ignoreUserConfig === true,
-      ignoreRules: codex.ignoreRules !== false,
-      sandbox: profileConfig.sandbox.defaultMode,
-      larkChannel,
-    });
-  }
-  return new ClaudeAdapter({ larkChannel });
-}
 
 /**
  * Print the same-app conflict, then ask the user how to proceed. Returns

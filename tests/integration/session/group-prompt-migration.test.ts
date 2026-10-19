@@ -17,6 +17,23 @@ describe('group prompt first-install migration', () => {
     await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
   });
 
+  it('uses an explicit DSH backend for untyped legacy ids, regardless of prefix', async () => {
+    const profileDir = await temporaryProfile();
+    const sessions = new SessionStore(join(profileDir, 'sessions.json'));
+    sessions.set('doc:legacy', 'uuid-without-prefix', '/repo/dsh');
+    await mkdir(join(profileDir, 'prompts', 'groups'), { recursive: true });
+    await writeFile(join(profileDir, 'prompts', 'groups', 'chat-new.md'), 'activate');
+    const service = await PromptSessionService.open({ profileDir, profile: 'dsh',
+      legacySessionAgentId: 'dsh', sessionStore: sessions,
+      sessionCatalog: new SessionCatalog(join(profileDir, 'catalog.json')) });
+    await service.prepareSession({ identity: { scopeId: 'chat-new', agentId: 'dsh',
+      cwdRealpath: '/repo/dsh', policyFingerprint: 'p' }, origin: { source: 'im',
+      scopeId: 'chat-new', chatId: 'chat-new', chatType: 'group' } });
+    expect(service.health).toMatchObject({ health: 'healthy', ledger: { records: {
+      'dsh:uuid-without-prefix': { agentId: 'dsh', sessionId: 'uuid-without-prefix' },
+    } } });
+  });
+
   it('imports active Catalog and independent Claude SessionStore entries as legacy-none', async () => {
     const profileDir = await temporaryProfile();
     const catalog = new SessionCatalog(join(profileDir, 'sessions.json.catalog.json'));

@@ -3,25 +3,22 @@
 import { execFile } from 'node:child_process';
 import {
   copyFile,
+  access,
   cp,
   mkdir,
   mkdtemp,
   readFile,
-  readdir,
   rm,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import {
-  loadPrivacyPatterns,
-  PRIVACY_PATTERN_ENV,
-  scanPrivacyTarget,
-} from './privacy-denylist-lib.mjs';
+import { PRIVACY_PATTERN_ENV } from './privacy-denylist-lib.mjs';
+import { checkPublicPackage } from './check-public-package.mjs';
 
 const execFileAsync = promisify(execFile);
-const BRIDGE_PACKAGE_NAME = '@penn.qp/lark-channel-bridge';
 
 export async function packAndVerify({
   source = process.cwd(),
@@ -32,21 +29,24 @@ export async function packAndVerify({
   const temporaryRoot = await mkdtemp(join(tmpdir(), 'bridge-package-verify-'));
   try {
     const requestedInput = patternFile ?? process.env[PRIVACY_PATTERN_ENV];
-    if (!requestedInput) {
-      throw new Error(
-        `privacy denylist input is required via --patterns-file or ${PRIVACY_PATTERN_ENV}`,
-      );
-    }
-    const protectedInput = resolve(requestedInput);
-    const patterns = await loadPrivacyPatterns(protectedInput);
+    const protectedInput = requestedInput ? resolve(requestedInput) : undefined;
     const releaseSource = join(temporaryRoot, 'source');
     await copyReleaseSource(sourceRoot, releaseSource);
 
-    await assertNoFindings('tree', releaseSource, patterns);
-    await assertNoFindings('dist', releaseSource, patterns);
+    const scan = (mode, tarball) => checkPublicPackage({
+      mode, root: releaseSource, tarball, patternFile: protectedInput, withPrivate: true,
+    });
+    await scan('tree');
+    await scan('dist');
+
+    const manifest = JSON.parse(await readFile(join(releaseSource, 'package.json'), 'utf8'));
+    const hasLock = await access(join(releaseSource, 'package-lock.json')).then(() => true, () => false);
+    if (!hasLock && manifest.dependencies?.['@larksuite/channel']) {
+      throw new Error('package-lock.json is required for the npm release layout; generate and commit it before packaging');
+    }
 
     await runNpm([
-      'install',
+      ...(hasLock ? ['ci'] : ['install', '--package-lock=false']),
       '--install-links=true',
       '--ignore-scripts',
       '--no-audit',
@@ -65,7 +65,7 @@ export async function packAndVerify({
       throw new Error('npm pack did not return a tarball name');
     }
     const tarball = join(packDirectory, packedName);
-    await assertNoFindings('tarball', releaseSource, patterns, tarball);
+    await scan('tarball', tarball);
 
     const verifyDirectory = join(temporaryRoot, 'install');
     await mkdir(verifyDirectory, { recursive: true });
@@ -132,21 +132,19 @@ async function gitTrackedFiles(root) {
   }
 }
 
-async function assertNoFindings(mode, root, patterns, tarball) {
-  const findings = await scanPrivacyTarget({ mode, root, tarball, patterns });
-  if (findings.length === 0) return;
-  const first = findings[0];
-  throw new Error(
-    `privacy ${mode} scan found ${findings.length} finding(s); first: ` +
-      `${first.path} (${first.label})`,
-  );
-}
-
 function runNpm(args, cwd, patternFile) {
+  // pnpm lifecycle commands export config into the environment. npm 11 rejects
+  // allow-scripts for project installs; retain registry, auth, and proxy config.
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (/^npm_config_(?:allow[_-]scripts|verify[_-]deps[_-]before[_-]run)$/i.test(key)) {
+      delete env[key];
+    }
+  }
   return execFileAsync('npm', args, {
     cwd,
     env: {
-      ...process.env,
+      ...env,
       [PRIVACY_PATTERN_ENV]: patternFile,
     },
     encoding: 'utf8',
@@ -154,7 +152,7 @@ function runNpm(args, cwd, patternFile) {
   });
 }
 
-async function verifyInstalledPackage(verifyDirectory, sourceRoot) {
+export async function verifyInstalledPackage(verifyDirectory, sourceRoot) {
   const expected = JSON.parse(await readFile(join(sourceRoot, 'package.json'), 'utf8'));
   const installedRoot = join(verifyDirectory, 'node_modules', ...expected.name.split('/'));
   const installed = JSON.parse(await readFile(join(installedRoot, 'package.json'), 'utf8'));
@@ -176,17 +174,25 @@ async function verifyInstalledPackage(verifyDirectory, sourceRoot) {
     }
   }
 
-  if (expected.name !== BRIDGE_PACKAGE_NAME) return;
+  if (!expected.dependencies?.['@larksuite/channel']) return;
+  const bundled = installed.bundleDependencies ?? installed.bundledDependencies ?? [];
+  if (!bundled.includes('@larksuite/channel')) {
+    throw new Error('packed bridge does not declare the bundled Channel dependency');
+  }
   const channelPackage = JSON.parse(
     await readFile(join(installedRoot, 'node_modules/@larksuite/channel/package.json'), 'utf8'),
   );
   if (!channelPackage.version) {
     throw new Error('packed bridge is missing the bundled Channel dependency');
   }
-  const sdkDirectories = await readdir(join(installedRoot, 'node_modules/@larksuiteoapi'));
-  if (!sdkDirectories.includes('node-sdk')) {
+  const sdkPackage = JSON.parse(await readFile(
+    join(installedRoot, 'node_modules/@larksuiteoapi/node-sdk/package.json'), 'utf8',
+  ).catch(() => {
     throw new Error('packed bridge is missing the Channel SDK dependency');
-  }
+  }));
+  if (!sdkPackage.version) throw new Error('packed Channel SDK has no package version');
+  createRequire(join(installedRoot, 'node_modules/@larksuite/channel/package.json'))
+    .resolve('@larksuiteoapi/node-sdk');
 }
 
 function parseArgs(argv) {

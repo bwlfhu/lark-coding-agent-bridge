@@ -783,7 +783,7 @@ async function writePrivateFile(path, content) {
 async function assertRepositorySource(root) {
   const packagePath = join(root, 'package.json');
   const parsed = JSON.parse(await readFile(packagePath, 'utf8'));
-  if (parsed.name !== '@penn.qp/lark-channel-bridge') {
+  if (!['@penn.qp/lark-channel-bridge', '@bwlfhu/lark-channel-bridge'].includes(parsed.name)) {
     throw new Error('mixed-version acceptance must run from the bridge repository');
   }
 }

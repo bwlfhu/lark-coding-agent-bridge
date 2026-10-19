@@ -144,12 +144,19 @@ export function ConfigView({ profile }: { profile: string }) {
       <Card>
         <CardHeader><CardTitle>回复与运行</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <Field label="模型" hint="可选择本机模型或填写自定义模型 ID；default 表示跟随 CLI 默认。">
-            <Input list="agent-model-options" value={cfg.model}
-              onChange={(e) => set("model", e.target.value)} />
-            <datalist id="agent-model-options">
-              {cfg.models.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-            </datalist>
+          <Field label="模型" hint={cfg.agentKind === 'dsh'
+            ? "DSH 仅可选择配置中已声明的模型；未配置 dsh.provider 时请使用 default，跟随 DSH 配置。"
+            : "可选择本机模型或填写自定义模型 ID；default 表示跟随 CLI 默认。"}>
+            {cfg.agentKind === 'dsh' ? (
+              <SelectRow value={cfg.model} onChange={(v) => set("model", v)}
+                options={cfg.models.map((m) => [m.value, m.label])} />
+            ) : <>
+              <Input list="agent-model-options" value={cfg.model}
+                onChange={(e) => set("model", e.target.value)} />
+              <datalist id="agent-model-options">
+                {cfg.models.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </datalist>
+            </>}
           </Field>
           {cfg.agentKind === 'codex' && <>
             <Field label="推理强度" hint="具体档位取决于模型支持；跟随默认不覆盖 CLI 设置。">

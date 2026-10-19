@@ -7,7 +7,7 @@ import { createLarkChannel } from '@larksuite/channel';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
-import { claudeCapability, codexCapability } from '../agent/capability';
+import { capabilityFor, codexCapability, isSessionIdAgent } from '../agent/capability';
 import { modelLabel, normalizeModelSelection, resolveModelArg } from '../agent/models';
 import {
   buildAgentPrompt,
@@ -2714,10 +2714,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     actorId: firstMsg.senderId,
     ...(threadId ? { threadId } : {}),
   };
-  const capability =
-    controls.profileConfig.agentKind === 'codex'
-      ? codexCapability(controls.profileConfig)
-      : claudeCapability(controls.profileConfig);
+  const capability = capabilityFor(controls.profileConfig);
   const promptOrigin = {
     source: 'im' as const,
     scopeId: scope,
@@ -2945,7 +2942,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     const promptSession = activeFlow.promptSession;
     const agentSessionId =
       evt.type === 'system'
-        ? capability.agentId === 'claude'
+        ? isSessionIdAgent(capability.agentId)
           ? evt.sessionId
           : evt.threadId
         : undefined;
