@@ -64,6 +64,7 @@ import {
   createRouteLease,
   deleteRouteLease,
   cleanupExpiredLeases,
+  keepRouteLeaseAlive,
   routeLeaseDir,
 } from '../runtime/route-lease';
 import {
@@ -2931,6 +2932,15 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
   // Keep it under the same terminal catch/finally so a synchronous subscribe
   // or prompt/render setup failure cannot strand tracker/lease state.
   let reactionPromise: ReturnType<typeof addWorkingReaction> | undefined;
+  // The agent may call at-bot / restart at any point of a long run; keep its
+  // route lease valid until the run ends instead of letting the creation-time
+  // TTL lapse mid-run.
+  const routeLeaseKeeper =
+    routeLeaseId && deps.profileDir
+      ? keepRouteLeaseAlive(deps.profileDir, routeLeaseId, {
+          onError: (err) => log.fail('route-lease', err, { step: 'renew', routeId: routeLeaseId }),
+        })
+      : undefined;
   try {
   const eventStream = execution.subscribe();
   if (flow.resumeFrom) {
@@ -3415,6 +3425,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     // chain doesn't stay current forever on an error path.
     finalizeReactionRun(scope, reactionTurnMeta, runUnitId);
   } finally {
+    routeLeaseKeeper?.stop();
     deps.editedMessageRestarts?.markTerminal(editableHandle);
     for (const admission of promptAdmissions) admission.finishWithoutIdentifier();
     if (activePolicyFingerprints.get(scope)?.handle === editableHandle) {

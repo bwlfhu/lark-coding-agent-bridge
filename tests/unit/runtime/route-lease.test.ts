@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createRouteLease,
   readRouteLease,
@@ -9,6 +9,8 @@ import {
   validateRouteLease,
   returnRouteFromLease,
   cleanupExpiredLeases,
+  keepRouteLeaseAlive,
+  renewRouteLease,
   makeRouteId,
   leasePath,
   routeLeaseDir,
@@ -220,5 +222,66 @@ describe('route lease store', () => {
     const r2 = await readRouteLease(dir, run2!.routeId);
     expect(r1?.chatId).toBe('oc_chatA');
     expect(r2?.chatId).toBe('oc_chatB');
+  });
+
+  it('renews a live lease so long runs stay valid past the initial TTL', async () => {
+    const dir = await makeTempDir();
+    useCleanup(dir);
+
+    const lease = await createRouteLease(dir, makeInput({ ttlMs: 1 }));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect((await validateRouteLease(dir, lease!.routeId, 12345)).ok).toBe(false);
+
+    expect(await renewRouteLease(dir, lease!.routeId, 60_000)).toBe(true);
+    const validation = await validateRouteLease(dir, lease!.routeId, 12345);
+    expect(validation.ok).toBe(true);
+    if (validation.ok) {
+      expect(validation.lease.chatId).toBe(lease!.chatId);
+      expect(validation.lease.replyTo).toBe(lease!.replyTo);
+      expect(validation.lease.createdAt).toBe(lease!.createdAt);
+    }
+  });
+
+  it('does not resurrect a consumed or deleted lease', async () => {
+    const dir = await makeTempDir();
+    useCleanup(dir);
+
+    const lease = await createRouteLease(dir, makeInput());
+    await deleteRouteLease(dir, lease!.routeId);
+    expect(await renewRouteLease(dir, lease!.routeId)).toBe(false);
+    expect(await readRouteLease(dir, lease!.routeId)).toBeUndefined();
+  });
+
+  it('keeper renews until stopped and stops itself when the lease is gone', async () => {
+    const dir = await makeTempDir();
+    useCleanup(dir);
+
+    const lease = await createRouteLease(dir, makeInput({ ttlMs: 50 }));
+    const keeper = keepRouteLeaseAlive(dir, lease!.routeId, { intervalMs: 10, ttlMs: 50 });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect((await validateRouteLease(dir, lease!.routeId, 12345)).ok).toBe(true);
+
+    keeper.stop();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect((await validateRouteLease(dir, lease!.routeId, 12345)).ok).toBe(false);
+
+    const second = await createRouteLease(dir, makeInput());
+    const onError = vi.fn();
+    const selfStopping = keepRouteLeaseAlive(dir, second!.routeId, { intervalMs: 10, onError });
+    await deleteRouteLease(dir, second!.routeId);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(await readRouteLease(dir, second!.routeId)).toBeUndefined();
+    expect(onError).not.toHaveBeenCalled();
+    selfStopping.stop();
+  });
+
+  it('keeper honours the safety cap', async () => {
+    const dir = await makeTempDir();
+    useCleanup(dir);
+
+    const lease = await createRouteLease(dir, makeInput({ ttlMs: 30 }));
+    keepRouteLeaseAlive(dir, lease!.routeId, { intervalMs: 5, ttlMs: 30, maxKeepAliveMs: 20 });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect((await validateRouteLease(dir, lease!.routeId, 12345)).ok).toBe(false);
   });
 });

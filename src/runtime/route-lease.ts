@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, readdir, rm, unlink } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ReturnRoute } from './restart-receipt';
 import { primitiveA, primitiveC, isMissingFile } from './restart-receipt';
@@ -99,6 +99,90 @@ export async function deleteRouteLease(
   routeId: string,
 ): Promise<boolean> {
   return primitiveC(leasePath(profileDir, routeId), routeId, 'routeId');
+}
+
+/**
+ * Extend a live lease's expiry while its run is still executing.
+ *
+ * A lease must stay valid for the whole agent run: `at-bot` and `restart`
+ * validate it at arbitrary points, and long runs routinely exceed the initial
+ * TTL. Renewal never resurrects a lease that was consumed (restart) or deleted
+ * (run end), and never rewrites one owned by a different routeId.
+ */
+export async function renewRouteLease(
+  profileDir: string,
+  routeId: string,
+  ttlMs: number = DEFAULT_LEASE_TTL_MS,
+): Promise<boolean> {
+  const target = leasePath(profileDir, routeId);
+  const lease = await readRouteLease(profileDir, routeId);
+  if (!lease || lease.routeId !== routeId) return false;
+  const renewed: RouteLease = {
+    ...lease,
+    expiresAt: new Date(Date.now() + ttlMs).toISOString(),
+  };
+  const temp = `${target}.${process.pid}.${Date.now()}.${randomUUID()}.renew.tmp`;
+  try {
+    await writeFile(temp, `${JSON.stringify(renewed)}\n`, 'utf8');
+    // Re-check right before the atomic replace so a concurrent consume/delete
+    // is not undone by this renewal.
+    if (!(await readRouteLease(profileDir, routeId))) return false;
+    await rename(temp, target);
+    return true;
+  } finally {
+    await rm(temp, { force: true }).catch(() => {});
+  }
+}
+
+/** Interval at which a running agent's lease is renewed. */
+export const ROUTE_LEASE_RENEW_INTERVAL_MS = 2 * 60 * 1000;
+/** Safety cap so a leaked keeper cannot renew a lease forever. */
+export const ROUTE_LEASE_MAX_KEEPALIVE_MS = 12 * 60 * 60 * 1000;
+
+export interface RouteLeaseKeeperOptions {
+  intervalMs?: number;
+  ttlMs?: number;
+  maxKeepAliveMs?: number;
+  onError?: (err: unknown) => void;
+}
+
+/**
+ * Periodically renew a run's lease until `stop()` is called, the lease
+ * disappears (consumed or deleted), or the safety cap is reached.
+ */
+export function keepRouteLeaseAlive(
+  profileDir: string,
+  routeId: string,
+  options: RouteLeaseKeeperOptions = {},
+): { stop(): void } {
+  const intervalMs = options.intervalMs ?? ROUTE_LEASE_RENEW_INTERVAL_MS;
+  const ttlMs = options.ttlMs ?? DEFAULT_LEASE_TTL_MS;
+  const deadline = Date.now() + (options.maxKeepAliveMs ?? ROUTE_LEASE_MAX_KEEPALIVE_MS);
+  let stopped = false;
+  let inFlight = false;
+  const timer = setInterval(() => {
+    if (stopped || inFlight) return;
+    if (Date.now() >= deadline) {
+      stop();
+      return;
+    }
+    inFlight = true;
+    renewRouteLease(profileDir, routeId, ttlMs)
+      .then((renewed) => {
+        if (!renewed) stop();
+      })
+      .catch((err) => options.onError?.(err))
+      .finally(() => {
+        inFlight = false;
+      });
+  }, intervalMs);
+  timer.unref?.();
+  function stop(): void {
+    if (stopped) return;
+    stopped = true;
+    clearInterval(timer);
+  }
+  return { stop };
 }
 
 /**
