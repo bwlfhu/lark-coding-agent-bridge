@@ -11,7 +11,7 @@ A lightweight bot that bridges Feishu / Lark messenger with your local Claude Co
 
 Based on KeepSilenceQP `0.7.1-qp.4`, preserving streaming-card recovery, Codex final-reply handling and group-prompt session binding, with the **DeepSeek Harness (DSH)** backend selectively adapted from RoverTang. Claude Code, Codex and DSH retain separate session identities. Interrupted tasks are never automatically replayed.
 
-Version `0.8.0-allcam.1` is installed from source or a verified local tarball; **no npm release has been published**. See the [DSH runbook](docs/runbooks/dsh-profile.md) for setup, existing credentials, local compatible APIs and limitations, and [maintenance guide](docs/maintenance.md) for future updates. The upstream integration history below is retained from KeepSilenceQP for provenance.
+Install version `0.8.1` with `npm install -g @bwlfhu/lark-channel-bridge@0.8.1`. This release keeps route leases alive during long agent runs so `at-bot` and `restart` remain available, and reconnects a stuck WebSocket without interrupting running agents. See the [DSH runbook](docs/runbooks/dsh-profile.md) for setup, existing credentials, local compatible APIs and limitations, and [maintenance guide](docs/maintenance.md) for future updates. The upstream integration history below is retained from KeepSilenceQP for provenance.
 
 ### Upstream integration record
 

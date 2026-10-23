@@ -1,6 +1,6 @@
 {
   "name": "@bwlfhu/lark-channel-bridge",
-  "version": "0.8.0-allcam.1",
+  "version": "0.8.1",
   "description": "Feishu/Lark bridge for local Codex, Claude Code and DeepSeek Harness",
   "type": "module",
   "packageManager": "pnpm@10.33.0",

@@ -11,7 +11,7 @@
 
 本仓库基于 KeepSilenceQP `0.7.1-qp.4`，保留流式卡片恢复、Codex 最终回复处理和群提示词会话绑定，并选择性移植 RoverTang 的 **DeepSeek Harness（DSH）** 后端。支持 Claude Code、Codex、DSH 三种独立后端，不会自动重放中断的任务。
 
-当前版本 `0.8.0-allcam.1` 从源码或经过验证的本地 tarball 安装；**尚未发布 npm 包**。DSH 的安装、现有凭据复用、本地兼容 API 与限制见 [DSH 部署说明](docs/runbooks/dsh-profile.md)，后续同步和发布流程见 [维护说明](docs/maintenance.md)。以下上游集成记录来自 KeepSilenceQP，保留作来源追溯。
+使用 `npm install -g @bwlfhu/lark-channel-bridge@0.8.1` 安装当前版本 `0.8.1`。此版本为长任务持续续期路由凭证，修复 `at-bot`、`restart` 因凭证过期而失败的问题，并在 WebSocket 卡住时优先仅重连连接，避免中断正在执行的 agent。DSH 的安装、现有凭据复用、本地兼容 API 与限制见 [DSH 部署说明](docs/runbooks/dsh-profile.md)，后续同步和发布流程见 [维护说明](docs/maintenance.md)。以下上游集成记录来自 KeepSilenceQP，保留作来源追溯。
 
 ### 上游集成记录
 

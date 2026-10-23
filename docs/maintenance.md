@@ -1,6 +1,11 @@
 # 自有维护分支
 
-维护仓库：<https://github.com/bwlfhu/lark-coding-agent-bridge>。CLI 仍为 `lark-channel-bridge`；npm 身份预留为 `@bwlfhu/lark-channel-bridge`，首个整合版本为 `0.8.0-allcam.1`，尚未发布 npm。不要安装同名未验证的 registry 包。
+维护仓库：<https://github.com/bwlfhu/lark-coding-agent-bridge>。CLI 仍为 `lark-channel-bridge`；npm 包为 `@bwlfhu/lark-channel-bridge`，首个整合版本为 `0.8.0-allcam.1`，当前版本为 `0.8.1`。使用 `npm install -g @bwlfhu/lark-channel-bridge@0.8.1` 安装。
+
+## 0.8.1 修复
+
+- `c21cfb1`：agent 运行期间每 2 分钟续期路由凭证，修复任务超过初始 10 分钟有效期后 `at-bot`、`restart` 报 `context-unbound` 的问题；任务结束时停止续期，续期上限为 12 小时。
+- `650f1ed`：保活检测发现连接卡住时，优先只重连 WebSocket，保留事件处理器和运行中的 agent；重连失败时，仅在没有运行中或已预约任务的情况下重启整个 bridge。
 
 ## 来源与同步基线
 
@@ -35,7 +40,7 @@ node tools/pack-and-verify.mjs --output /outside/repository/lark-bridge-verified
 
 公开扫描和 clean-install smoke 不依赖原维护者私人的 denylist secret。公开扫描只能检测已定义的模式，不能证明绝无敏感信息；发布前仍需检查 diff 与归档清单。有真实私人 denylist 时通过 `LARK_BRIDGE_PRIVACY_DENYLIST_FILE` 或 `--patterns-file` 执行额外精确扫描；未提供时会明确显示跳过，不能声称该私人 gate 已通过。
 
-自动 npm 发布保持禁用。待配置自己的 npm namespace、Trusted Publisher、维护者权限和发布验收后，再以单独变更启用；不要复用上游的发布身份。先测试 tarball，再决定是否创建 GitHub release 或发布 npm。
+推送提交或 tag 不会自动发布 npm。可以在本地以包维护者身份发布已经验证的 tarball：`npm publish /outside/repository/lark-bridge-verified.tgz --access public --tag latest`。手动 GitHub Actions 发布还需配置本仓库的 `NPM_PUBLISH_ENABLED=true`、`NPM_PACKAGE_NAME=@bwlfhu/lark-channel-bridge` 和 npm Trusted Publisher，然后选择已有的 `v<package.version>` tag 运行发布 workflow；不要复用上游的发布身份。
 
 ## 升级与回滚
 
