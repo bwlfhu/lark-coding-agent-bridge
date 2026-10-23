@@ -124,7 +124,7 @@ import {
   type StartRunFlowResult,
 } from './run-flow';
 import { commandSessionCatalogIdentity } from './session-catalog-identity';
-import { startKeepalive } from './keepalive';
+import { makeKeepaliveReconnect, startKeepalive } from './keepalive';
 import { PendingQueue, type WorkLease } from './pending-queue';
 import { ProcessPool } from './process-pool';
 import { fetchQuotedContext, fetchTopicContext, type QuotedContext } from './quote';
@@ -2157,7 +2157,11 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
   const keepalive = startKeepalive({
     channel,
     domain: probeDomain,
-    forceReconnect: () => controls.restart(),
+    forceReconnect: makeKeepaliveReconnect({
+      channel,
+      activeRunCount: () => activeRuns.scopes().length + activeRuns.reservedCount(),
+      restartBridge: () => controls.restart(),
+    }),
   });
 
   return {

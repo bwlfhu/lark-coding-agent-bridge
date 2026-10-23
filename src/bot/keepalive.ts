@@ -37,7 +37,7 @@ export interface KeepaliveDeps {
   channel: LarkChannel;
   /** HTTP probe target, typically `https://open.feishu.cn` or lark equivalent. */
   domain: string;
-  /** Force-reconnect callback. Bridge uses `controls.restart`. */
+  /** Force-reconnect callback. Bridge uses `makeKeepaliveReconnect`. */
   forceReconnect: () => Promise<void>;
 }
 
@@ -136,6 +136,47 @@ export function startKeepalive(deps: KeepaliveDeps): KeepaliveHandle {
       stopped = true;
       clearInterval(timer);
     },
+  };
+}
+
+export interface KeepaliveReconnectDeps {
+  channel: LarkChannel;
+  /** Number of agent runs currently active or reserved. */
+  activeRunCount: () => number;
+  /** Full bridge restart (tears down the channel and stops every active run). */
+  restartBridge: () => Promise<void>;
+}
+
+/**
+ * Build the keepalive's force-reconnect action.
+ *
+ * A stuck WebSocket only needs a fresh WebSocket. Rebuilding the whole bridge
+ * calls `activeRuns.stopAll()` and SIGTERMs every running agent, so a brief
+ * network blip would interrupt in-flight work. Reconnect the WebSocket in
+ * place first (same dispatcher, so event handlers are preserved); escalate
+ * to a full bridge restart only when that fails and no run would be killed.
+ */
+export function makeKeepaliveReconnect(deps: KeepaliveReconnectDeps): () => Promise<void> {
+  return async () => {
+    const wsReconnect = (deps.channel as unknown as { forceReconnect?: () => Promise<void> })
+      .forceReconnect;
+    if (typeof wsReconnect === 'function') {
+      try {
+        await wsReconnect.call(deps.channel);
+        log.info('keepalive', 'ws-reconnected', { mode: 'websocket-only' });
+        return;
+      } catch (err) {
+        log.fail('keepalive', err, { step: 'ws-reconnect' });
+      }
+    }
+    const active = deps.activeRunCount();
+    if (active > 0) {
+      // Never kill in-flight agent runs for a connection problem; the next
+      // keepalive round retries the WebSocket reconnect.
+      log.warn('keepalive', 'restart-deferred', { activeRuns: active });
+      return;
+    }
+    await deps.restartBridge();
   };
 }
 

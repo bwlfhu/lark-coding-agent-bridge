@@ -184,6 +184,15 @@ export class ActiveRuns {
     return this.handles.get(chatId);
   }
 
+  /** Number of reserved scopes that are not active yet. */
+  reservedCount(): number {
+    let count = 0;
+    for (const chatId of this.reservations.keys()) {
+      if (!this.handles.has(chatId)) count++;
+    }
+    return count;
+  }
+
   /** True when a run is reserved (prompt-prep/pool-wait) but not yet active. */
   hasReservation(chatId: string): boolean {
     return this.reservations.has(chatId);
