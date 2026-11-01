@@ -6,6 +6,7 @@ import type {
   SecretsConfig,
 } from './schema';
 import { normalizeDshConfig, type DshConfig } from '../agent/dsh/config';
+import { isToolDisplayMode } from './schema';
 
 export type { DshConfig };
 import {
@@ -351,10 +352,12 @@ function normalizePreferences(
     requireMentionInGroup: _mention,
     messageReply,
     codexEditedMessageRestart,
+    toolDisplayMode,
     ...rest
   } = preferences ?? {};
   const normalized = {
     ...rest,
+    ...(isToolDisplayMode(toolDisplayMode) ? { toolDisplayMode } : {}),
     ...(codexEditedMessageRestart === true ? { codexEditedMessageRestart: true } : {}),
   };
   if (messageReply !== undefined && isMessageReply(messageReply)) {

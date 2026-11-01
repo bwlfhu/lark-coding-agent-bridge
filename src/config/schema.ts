@@ -1,6 +1,11 @@
 import type { GroupResponseMode } from './profile-schema';
 
 export type TenantBrand = 'feishu' | 'lark';
+export type ToolDisplayMode = 'full' | 'live-only' | 'hidden';
+
+export function isToolDisplayMode(value: unknown): value is ToolDisplayMode {
+  return value === 'full' || value === 'live-only' || value === 'hidden';
+}
 
 /**
  * SecretRef points at a secret stored outside this file — keeps secrets out
@@ -121,6 +126,8 @@ export interface AppPreferences {
    * text answer and want to hide the "工具调用过程".
    */
   showToolCalls?: boolean;
+  /** Explicit display mode takes precedence over the legacy boolean. */
+  toolDisplayMode?: ToolDisplayMode;
   /**
    * Model the underlying agent runs with, forwarded as `--model`. The catalog
    * is a suggestion list, not a runtime allowlist. `undefined`
@@ -226,7 +233,13 @@ export function getMessageReplyMode(cfg: AppConfig): MessageReplyMode {
 
 /** Resolve the show-tool-calls preference with default fallback. */
 export function getShowToolCalls(cfg: AppConfig): boolean {
-  return cfg.preferences?.showToolCalls !== false;
+  return getToolDisplayMode(cfg) !== 'hidden';
+}
+
+export function getToolDisplayMode(cfg: AppConfig): ToolDisplayMode {
+  const mode = cfg.preferences?.toolDisplayMode;
+  if (isToolDisplayMode(mode)) return mode;
+  return cfg.preferences?.showToolCalls === false ? 'hidden' : 'full';
 }
 
 export function getCotMessages(cfg: AppConfig): CotMessagesMode {
