@@ -1,4 +1,5 @@
 import type { ToolEntry } from './run-state';
+import type { RunState } from './run-state';
 
 const HEADER_SUMMARY_MAX = 80;
 const BODY_FIELD_MAX = 600;
@@ -11,6 +12,18 @@ const OUTPUT_MAX = 1200;
  * is the last belt across the whole rendered body string.
  */
 const BODY_TOTAL_MAX = 2500;
+
+/** A single bounded paragraph: it must stay in the mutable tail on rollover. */
+export function runningToolFooter(state: RunState): string | undefined {
+  if (state.terminal !== 'running') return undefined;
+  const tools = state.blocks.flatMap((b) => b.kind === 'tool' && b.tool.status === 'running' ? [b.tool] : []);
+  const latest = tools.at(-1);
+  if (!latest) return undefined;
+  const escape = (s: string): string => s.replace(/\s+/g, ' ').replace(/[\\`*_\[\]<>|]/g, '\\$&');
+  const name = escape(latest.name.slice(0, 48));
+  const summary = escape(summarizeInput(latest.name, latest.input));
+  return `⏳ 正在调用工具：${name}${summary ? ` — ${summary}` : ''}${tools.length > 1 ? `（另有 ${tools.length - 1} 项运行中）` : ''}`;
+}
 
 export function toolHeaderText(tool: ToolEntry): string {
   const icon = tool.status === 'done' ? '✅' : tool.status === 'error' ? '❌' : '⏳';

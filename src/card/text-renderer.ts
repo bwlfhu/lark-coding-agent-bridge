@@ -2,7 +2,8 @@ import { maskEmails } from './mask-email';
 import type { Block, RunState, ToolEntry } from './run-state';
 import { renderLocalFileLinksAsPaths } from './markdown-links';
 import { preserveListQuoteContent } from './markdown-quotes';
-import { toolHeaderText } from './tool-render';
+import { runningToolFooter, toolHeaderText } from './tool-render';
+import type { ToolDisplayMode } from '../config/schema';
 
 /**
  * Render `RunState` as plain markdown text — used in `messageReply: 'text'`
@@ -16,6 +17,7 @@ import { toolHeaderText } from './tool-render';
  */
 export interface RenderTextOptions {
   includeRunningFooter?: boolean;
+  toolDisplayMode?: ToolDisplayMode;
 }
 
 export function renderText(
@@ -24,8 +26,10 @@ export function renderText(
 ): string {
   const includeRunningFooter = options.includeRunningFooter ?? true;
   const parts: string[] = [];
+  const mode = options.toolDisplayMode ?? 'full';
 
   for (const block of state.blocks) {
+    if (mode !== 'full' && block.kind === 'tool') continue;
     const piece = renderBlock(block);
     if (piece) parts.push(piece);
   }
@@ -38,7 +42,11 @@ export function renderText(
   } else if (state.terminal === 'error' && state.errorMsg) {
     parts.push(`⚠️ agent 失败:${state.errorMsg}`);
   } else if (includeRunningFooter && state.terminal === 'running' && state.footer) {
-    parts.push(footerLine(state.footer));
+    const live = mode === 'live-only' ? runningToolFooter(state) : undefined;
+    parts.push(live ?? footerLine(mode !== 'full' && state.footer === 'tool_running' ? 'streaming' : state.footer));
+  }
+  if (state.terminal === 'done' && parts.every((part) => !part.trim()) && mode !== 'full') {
+    parts.push('_（未返回内容）_');
   }
 
   // Strip raw emails so the Feishu tenant audit doesn't reject the message

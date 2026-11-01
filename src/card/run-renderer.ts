@@ -2,7 +2,8 @@ import { deepMaskEmails } from './mask-email';
 import type { Block, FooterStatus, RunState, ToolEntry } from './run-state';
 import { renderLocalFileLinksAsPaths } from './markdown-links';
 import { preserveListQuoteContent } from './markdown-quotes';
-import { toolBodyMd, toolHeaderText } from './tool-render';
+import { runningToolFooter, toolBodyMd, toolHeaderText } from './tool-render';
+import type { ToolDisplayMode } from '../config/schema';
 
 const REASONING_MAX = 1500;
 const COLLAPSE_TOOL_THRESHOLD = 3;
@@ -19,6 +20,7 @@ type Group = ToolGroup | TextGroup;
 
 export interface RunCardRenderOptions {
   signCallback?: (action: string) => string;
+  toolDisplayMode?: ToolDisplayMode;
 }
 
 export function renderCard(state: RunState, options: RunCardRenderOptions = {}): object {
@@ -28,7 +30,9 @@ export function renderCard(state: RunState, options: RunCardRenderOptions = {}):
     elements.push(reasoningPanel(state.reasoning.content, state.reasoning.active));
   }
 
-  for (const group of groupBlocks(state.blocks)) {
+  const mode = options.toolDisplayMode ?? 'full';
+  const visibleBlocks = mode === 'full' ? state.blocks : state.blocks.filter((b) => b.kind === 'text');
+  for (const group of groupBlocks(visibleBlocks)) {
     if (group.kind === 'text') {
       if (group.content.trim()) {
         elements.push(markdown(group.content));
@@ -50,7 +54,9 @@ export function renderCard(state: RunState, options: RunCardRenderOptions = {}):
   }
 
   if (state.terminal === 'running') {
-    if (state.footer) elements.push(footerStatus(state.footer));
+    const live = mode === 'live-only' ? runningToolFooter(state) : undefined;
+    if (live) elements.push(noteMd(live));
+    else if (state.footer) elements.push(footerStatus(mode !== 'full' && state.footer === 'tool_running' ? 'streaming' : state.footer));
     elements.push(stopButton(options));
   }
 
@@ -60,7 +66,7 @@ export function renderCard(state: RunState, options: RunCardRenderOptions = {}):
     schema: '2.0',
     config: {
       streaming_mode: state.terminal === 'running',
-      summary: { content: summaryText(state) },
+      summary: { content: summaryText(mode !== 'full' && state.footer === 'tool_running' ? { ...state, footer: 'streaming' } : state) },
     },
     body: { elements },
   });
