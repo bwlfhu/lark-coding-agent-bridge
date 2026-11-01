@@ -1,6 +1,14 @@
 # 自有维护分支
 
-维护仓库：<https://github.com/bwlfhu/lark-coding-agent-bridge>。CLI 仍为 `lark-channel-bridge`；npm 包为 `@bwlfhu/lark-channel-bridge`，首个整合版本为 `0.8.0-allcam.1`，当前版本为 `0.8.1`。使用 `npm install -g @bwlfhu/lark-channel-bridge@0.8.1` 安装。
+维护仓库：<https://github.com/bwlfhu/lark-coding-agent-bridge>。CLI 仍为 `lark-channel-bridge`；npm 包为 `@bwlfhu/lark-channel-bridge`，首个整合版本为 `0.8.0-allcam.1`，当前版本为 `0.8.2`。使用 `npm install -g @bwlfhu/lark-channel-bridge@0.8.2` 安装。
+
+## 0.8.2 工具展示
+
+- 新增 `toolDisplayMode: full | live-only | hidden`，保留旧布尔配置兼容与 full 默认。
+- live-only 将当前命令放在底部，结束即移除，工具输出不进入最终消息。
+- 卡片、Markdown、异常回退、聊天设置和 Web 控制台使用同一模式。
+- COT 为持久事件记录，live-only 改用可更新卡片；hidden 不发布工具事件。
+- 发布不升级或重启现有服务。升级后通过对应 profile 的 `/config` 选择“仅运行时显示”。
 
 ## 0.8.1 修复
 

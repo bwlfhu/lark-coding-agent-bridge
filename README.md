@@ -11,7 +11,7 @@ A lightweight bot that bridges Feishu / Lark messenger with your local Claude Co
 
 Based on KeepSilenceQP `0.7.1-qp.4`, preserving streaming-card recovery, Codex final-reply handling and group-prompt session binding, with the **DeepSeek Harness (DSH)** backend selectively adapted from RoverTang. Claude Code, Codex and DSH retain separate session identities. Interrupted tasks are never automatically replayed.
 
-Install version `0.8.1` with `npm install -g @bwlfhu/lark-channel-bridge@0.8.1`. This release keeps route leases alive during long agent runs so `at-bot` and `restart` remain available, and reconnects a stuck WebSocket without interrupting running agents. See the [DSH runbook](docs/runbooks/dsh-profile.md) for setup, existing credentials, local compatible APIs and limitations, and [maintenance guide](docs/maintenance.md) for future updates. The upstream integration history below is retained from KeepSilenceQP for provenance.
+Install version `0.8.2` with `npm install -g @bwlfhu/lark-channel-bridge@0.8.2`. This release adds full, live-only and hidden tool display modes, including a transient current-command footer without completed tool results. See the [DSH runbook](docs/runbooks/dsh-profile.md) for setup, existing credentials, local compatible APIs and limitations, and [maintenance guide](docs/maintenance.md) for future updates. The upstream integration history below is retained from KeepSilenceQP for provenance.
 
 ### Upstream integration record
 
@@ -537,3 +537,24 @@ A missing module, a bad factory, or a throwing adapter all degrade to noop — t
 [MIT](./LICENSE)
 
 <img src="./assets/feedback-group-qr.png" alt="Feedback group QR code" width="360">
+
+## Tool display
+
+Choose **Full**, **Live only** or **Hidden** in `/config` or the Web console.
+Full is the compatibility default. Live only shows a bounded current command at
+the bottom while it runs, then removes it; parallel tools show the newest command
+and the number of other active tools. Tool output stays in internal state and logs.
+Hidden omits tool information. Assistant-authored text and terminal error,
+interruption and timeout notices are preserved; assistant text is never filtered
+based on whether it mentions commands.
+
+`preferences.toolDisplayMode` accepts `full`, `live-only`, or `hidden` and takes
+precedence over legacy `showToolCalls` (`true` → full, `false` → hidden).
+With COT enabled, live only uses an editable card (including available reasoning)
+instead of the persistent COT history. Hidden suppresses COT tool events even in
+detailed mode. Plain text still sends once at completion. Display changes apply
+on subsequent renders; changing modes cannot erase previously published COT history or earlier finalized
+Markdown rollover cards. Select live only before starting the next turn to keep
+the entire turn free of completed tool content.
+To enable on an existing Codex profile after upgrading, select **Live only** in
+that profile's `/config`; publishing alone does not change running profiles.
