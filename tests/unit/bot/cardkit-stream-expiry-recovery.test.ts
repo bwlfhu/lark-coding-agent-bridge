@@ -1,5 +1,7 @@
 import { createLarkChannel, type LarkChannel } from '@larksuite/channel';
 import { describe, expect, it, vi } from 'vitest';
+import { renderText } from '../../../src/card/text-renderer.js';
+import { initialState, reduce } from '../../../src/card/run-state.js';
 import { installCardkitStreamDiagnostics } from '../../../src/bot/channel.js';
 
 describe('CardKit stream expiry recovery', () => {
@@ -214,6 +216,35 @@ describe('CardKit stream expiry recovery', () => {
     ).resolves.toMatchObject({ messageId: 'message_1' });
     expect(content).toHaveBeenCalledOnce();
     expect(update).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps live tool status out of finalized rollover cards', async () => {
+    const latest = new Map<string, string>();
+    const content = vi.fn(async (request: unknown) => {
+      const r = request as { path: { card_id: string }; data: { content: string } };
+      latest.set(r.path.card_id, r.data.content);
+      return { code: 0, data: {} };
+    });
+    const channel = realStreamingChannel(content, vi.fn(async () => ({ code: 0, data: {} })), 256);
+    let cards = 0;
+    channel.rawClient.cardkit.v1.card.create = vi.fn(async () => ({ code: 0, data: { card_id: `card_${++cards}` } }));
+    let state = reduce(initialState, { type: 'text', delta: Array.from({ length: 28 }, (_, i) => `assistant-line-${i}`).join('\n') });
+    await channel.stream('oc_test', { markdown: async (controller) => {
+      state = reduce(state, { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'transient-command' } });
+      await controller.setContent(renderText(state, { toolDisplayMode: 'live-only' }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect([...latest.values()].some((s) => s.includes('transient-command'))).toBe(true);
+      state = reduce(state, { type: 'tool_result', id: 't1', output: 'PRIVATE-RESULT', isError: false });
+      state = reduce(state, { type: 'text', delta: '\n' + Array.from({ length: 30 }, (_, i) => `more-assistant-${i}`).join('\n') });
+      await controller.setContent(renderText(state, { toolDisplayMode: 'live-only' }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      state = reduce(state, { type: 'done', terminationReason: 'normal' });
+      await controller.setContent(renderText(state, { toolDisplayMode: 'live-only' }));
+    } }, { replyTo: 'om_parent' });
+    expect(cards).toBeGreaterThan(2);
+    expect([...latest.values()].join('')).not.toContain('transient-command');
+    expect([...latest.values()].join('')).not.toContain('PRIVATE-RESULT');
+    expect([...latest.values()].join('')).toContain('more-assistant-29');
   });
 
   it('does not replay finalized rollover chunks on later full snapshots', async () => {

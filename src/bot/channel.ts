@@ -40,7 +40,7 @@ import {
   getCotMessages,
   getMaxConcurrentRuns,
   getMessageReplyMode,
-  getShowToolCalls,
+  getToolDisplayMode,
 } from '../config/schema';
 import { resolveAppSecret } from '../config/secret-resolver';
 import { log, reportMetric, withTrace } from '../core/logger';
@@ -3123,19 +3123,20 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     log.info('flush', 'startup-watchdog', { startupTimeoutMs });
   }
 
-  const replyMode = getMessageReplyMode(controls.cfg);
+  // COT is append-only: live-only uses an editable card so finished tools disappear.
+  const liveCot =
+    getCotMessages(controls.cfg) !== 'off' && getToolDisplayMode(controls.cfg) === 'live-only';
+  const replyMode = liveCot ? 'card' : getMessageReplyMode(controls.cfg);
   log.info('flush', 'reply-mode', { mode: replyMode });
   const cotMessages = getCotMessages(controls.cfg);
-  const cotEnabled = cotMessages !== 'off';
+  const cotEnabled = cotMessages !== 'off' && !liveCot;
 
-  // Re-read prefs on every flush so toggling /config mid-stream takes
-  // effect immediately. Cheap object lookups, no allocation when on.
-  const filterForPrefs = (state: RunState): RunState => {
-    if (getShowToolCalls(controls.cfg)) return state;
-    return { ...state, blocks: state.blocks.filter((b) => b.kind !== 'tool') };
-  };
-  const cardRenderOptions = callbackAuth
-    ? {
+  const cardRenderOptions = {
+    // Re-read preferences on every render, including fallbacks.
+    get toolDisplayMode() {
+      return getToolDisplayMode(controls.cfg);
+    },
+    ...(callbackAuth ? {
         signCallback: (action: string) =>
           callbackAuth.sign({
             runId: execution.runId,
@@ -3146,8 +3147,8 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
             policyFingerprint: flow.policy.policyFingerprint,
             ttlMs: 24 * 60 * 60 * 1000,
           }),
-      }
-    : {};
+      } : {}),
+  };
 
   // For non-card modes Claude's output doesn't surface visually until either
   // a first streamed token (markdown mode) or the whole run ends (text mode).
@@ -3178,6 +3179,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
       if (!cotPublisher.disabled) {
         const cotDone = consumeCotEvents(execution.subscribe(), cotPublisher, {
           detail: cotMessages,
+          getToolDisplayMode: () => getToolDisplayMode(controls.cfg),
         });
         const finalState = await processAgentStream(
           handle,
@@ -3232,7 +3234,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         async (state) => {
           latestState = state;
           if (cardCtrl) {
-            await cardCtrl.update(renderCard(filterForPrefs(state), cardRenderOptions));
+            await cardCtrl.update(renderCard(state, cardRenderOptions));
           }
         },
         recoverStartupTimeout,
@@ -3248,7 +3250,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
               cardCtrl = ctrl;
               // Register outbound IMMEDIATELY so stop can correlate during streaming.
               _registerOutboundOnStream(ctrl);
-              await ctrl.update(renderCard(filterForPrefs(latestState), cardRenderOptions));
+              await ctrl.update(renderCard(latestState, cardRenderOptions));
               await renderDone;
             },
           },
@@ -3271,7 +3273,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
           // R2-F4: register the fallback outbound so stop can correlate it.
           const fbResult = await channel.send(
             chatId,
-            { card: renderCard(filterForPrefs(fallbackState), cardRenderOptions) },
+            { card: renderCard(fallbackState, cardRenderOptions) },
             sendOpts,
           );
           _registerOutboundOnStream(fbResult);
@@ -3281,7 +3283,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
       finalizeReactionRun(scope, reactionTurnMeta, runUnitId);
     } else if (replyMode === 'markdown') {
       let latestState: RunState = initialState;
-      let latestMarkdown = renderMarkdownStreamText(latestState);
+      let latestMarkdown = renderMarkdownStreamText(latestState, cardRenderOptions);
       let markdownFlushes = 0;
       let producerStarted = false;
       let lastSetContent:
@@ -3328,7 +3330,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         async (state) => {
           latestState = state;
           if (markdownCtrl) {
-            const markdown = renderMarkdownStreamText(filterForPrefs(state));
+            const markdown = renderMarkdownStreamText(state, cardRenderOptions);
             await setMarkdownContent(state.terminal === 'running' ? 'update' : 'terminal', markdown);
           }
         },
@@ -3344,10 +3346,10 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
               markdownCtrl = ctrl;
               // Register outbound IMMEDIATELY so stop can correlate during streaming.
               _registerOutboundOnStream(ctrl);
-              const initialMarkdown = renderMarkdownStreamText(filterForPrefs(latestState));
+              const initialMarkdown = renderMarkdownStreamText(latestState, cardRenderOptions);
               await setMarkdownContent('initial', initialMarkdown);
               const finalState = await renderDone;
-              const finalMarkdown = renderMarkdownStreamText(filterForPrefs(finalState));
+              const finalMarkdown = renderMarkdownStreamText(finalState, cardRenderOptions);
               log.info('stream', 'markdown-producer-final', {
                 terminal: finalState.terminal,
                 chars: latestMarkdown.length,
@@ -3382,10 +3384,10 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
           verifyMarkdownFinalReadback(
             channel,
             streamValue,
-            renderMarkdownStreamText(filterForPrefs(state)),
+            renderMarkdownStreamText(state, cardRenderOptions),
           ),
         fallback: async (state) => {
-          const body = renderText(filterForPrefs(state));
+          const body = renderText(state, cardRenderOptions);
           if (body.trim()) {
             // R2-F4: register the fallback outbound so stop can correlate it.
             const fbResult = await channel.send(chatId, { markdown: body }, sendOpts);
@@ -3414,7 +3416,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         channel,
         chatId,
         scope,
-        state: filterForPrefs(finalState),
+        state: finalState,
         replyMode,
         sendOpts,
         cardRenderOptions,
@@ -3446,9 +3448,9 @@ async function sendFinalReply(input: {
   state: RunState;
   replyMode: ReturnType<typeof getMessageReplyMode>;
   sendOpts: { replyTo: string; replyInThread?: boolean };
-  cardRenderOptions: { signCallback?: (action: string) => string };
+  cardRenderOptions: import('../card/run-renderer').RunCardRenderOptions;
 }): Promise<unknown> {
-  const body = renderText(input.state);
+  const body = renderText(input.state, input.cardRenderOptions);
   let lastResult: unknown;
 
   if (input.replyMode === 'card') {
@@ -3541,8 +3543,8 @@ function outboundLogFields(
   };
 }
 
-function renderMarkdownStreamText(state: RunState): string {
-  return renderText(state);
+function renderMarkdownStreamText(state: RunState, options: import('../card/text-renderer').RenderTextOptions = {}): string {
+  return renderText(state, options);
 }
 
 function hasRunningFooter(markdown: string): boolean {

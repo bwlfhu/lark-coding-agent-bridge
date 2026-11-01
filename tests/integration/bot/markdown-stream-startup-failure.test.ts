@@ -101,6 +101,52 @@ afterEach(async () => {
 });
 
 describe('markdown stream startup failures', () => {
+  it.each(['markdown', 'card', 'text', 'cot'] as const)('removes tool payloads through the %s delivery path', async (mode) => {
+    const snapshots: string[] = [];
+    const h = await createHarness({ stream: async (_chatId, input) => {
+      const stream = input as { markdown?: (ctrl: { setContent(s: string): Promise<void> }) => Promise<void>; card?: { producer(ctrl: { update(s: object): Promise<void> }): Promise<void> } };
+      if (mode === 'cot') expect(stream.card).toBeDefined();
+      if (stream.markdown) await stream.markdown({ setContent: async (s) => { snapshots.push(s); } });
+      if (stream.card) await stream.card.producer({ update: async (s) => { snapshots.push(JSON.stringify(s)); } });
+      return { messageId: 'om_stream' };
+    } });
+    h.profileConfig.preferences = { ...h.profileConfig.preferences, toolDisplayMode: 'live-only', messageReply: mode === 'cot' ? 'markdown' : mode, messageReplyMigrated: true, cotMessages: mode === 'cot' ? 'detailed' : 'off' };
+    h.agent.setEvents([
+      { type: 'text', delta: '检查开始' },
+      { type: 'tool_use', id: 't', name: 'Bash', input: { command: 'echo transient-command' } },
+      { type: 'tool_result', id: 't', output: 'PRIVATE-RESULT', isError: false },
+      { type: 'text', delta: '检查完成' },
+      { type: 'done', terminationReason: 'normal' },
+    ]);
+    await startTestBridge(h);
+    await h.channel.handlers.message?.(message('om_first', 'first'));
+    await waitFor(() => snapshots.some((s) => s.includes('检查完成')) || h.channel.sent.length > 0);
+    const final = snapshots.at(-1) ?? JSON.stringify(h.channel.sent.at(-1));
+    expect(final).toContain('检查完成');
+    expect(final).not.toContain('transient-command');
+    expect(final).not.toContain('PRIVATE-RESULT');
+    expect(snapshots.join('')).not.toContain('PRIVATE-RESULT');
+    if (mode !== 'text') expect(snapshots.some((s) => s.includes('transient-command'))).toBe(true);
+    if (mode === 'cot') expect(h.channel.rawClient.request.mock.calls.some((c) => JSON.stringify(c).includes('message_cot'))).toBe(false);
+  });
+
+  it.each(['markdown', 'card'] as const)('keeps live-only fallback clean after %s stream failure', async (mode) => {
+    const h = await createHarness({ stream: async () => { throw new Error('stream unavailable'); } });
+    h.profileConfig.preferences = { ...h.profileConfig.preferences, toolDisplayMode: 'live-only', messageReply: mode };
+    h.agent.setEvents([
+      { type: 'tool_use', id: 't', name: 'Bash', input: { command: 'PRIVATE-COMMAND' } },
+      { type: 'tool_result', id: 't', output: 'PRIVATE-RESULT', isError: true },
+      { type: 'text', delta: '最终答复' },
+      { type: 'done', terminationReason: 'normal' },
+    ]);
+    await startTestBridge(h);
+    await h.channel.handlers.message?.(message('om_first', 'first'));
+    await waitFor(() => h.channel.sent.length > 0);
+    const out = JSON.stringify(h.channel.sent);
+    expect(out).toContain('最终答复');
+    expect(out).not.toContain('PRIVATE');
+  });
+
   it('routes a Reaction-triggered restart receipt back to the real target message', async () => {
     const h = await createHarness();
     await startTestBridge(h);

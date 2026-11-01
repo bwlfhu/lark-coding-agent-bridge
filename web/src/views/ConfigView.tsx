@@ -82,7 +82,7 @@ export function ConfigView({ profile }: { profile: string }) {
         reasoningEffort: cfg.reasoningEffort,
         fastMode: cfg.fastMode,
         messageReply: cfg.messageReply,
-        showToolCalls: cfg.showToolCalls,
+        toolDisplayMode: cfg.toolDisplayMode,
         cotMessages: cfg.cotMessages,
         maxConcurrentRuns: cfg.maxConcurrentRuns,
         runIdleTimeoutMinutes: cfg.runIdleTimeoutMinutes,
@@ -172,8 +172,10 @@ export function ConfigView({ profile }: { profile: string }) {
             <SelectRow value={cfg.messageReply} onChange={(v) => set("messageReply", v as ConfigData["messageReply"])}
               options={[["markdown", "消息卡片（默认）"], ["text", "纯文本"]]} />
           </Field>
-          <ToggleRow label="工具调用显示" hint="显示 bot 执行的命令与文件读写过程" checked={cfg.showToolCalls}
-            onChange={(v) => set("showToolCalls", v)} />
+          <Field label="工具调用显示" hint="仅运行时显示：底部显示当前命令，完成后隐藏工具信息。">
+            <SelectRow value={cfg.toolDisplayMode} onChange={(v) => set("toolDisplayMode", v as ConfigData["toolDisplayMode"])}
+              options={[["full", "完整显示（默认）"], ["live-only", "仅运行时显示"], ["hidden", "隐藏"]]} />
+          </Field>
           <Field label="COT 过程消息">
             <SelectRow value={cfg.cotMessages} onChange={(v) => set("cotMessages", v as ConfigData["cotMessages"])}
               options={[["off", "关闭"], ["brief", "简略"], ["detailed", "详细"]]} />

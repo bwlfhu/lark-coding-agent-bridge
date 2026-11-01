@@ -30,6 +30,9 @@ import {
   getRequireMentionInGroup,
   getRunIdleTimeoutMs,
   getShowToolCalls,
+  getToolDisplayMode,
+  isToolDisplayMode,
+  type ToolDisplayMode,
   type AppPreferences,
   type CotMessagesMode,
   type MessageReplyMode,
@@ -63,6 +66,7 @@ export interface ConfigView {
   models: { value: string; label: string }[];
   messageReply: MessageReplyMode;
   showToolCalls: boolean;
+  toolDisplayMode: ToolDisplayMode;
   cotMessages: CotMessagesMode;
   maxConcurrentRuns: number;
   runIdleTimeoutMinutes: number;
@@ -97,6 +101,7 @@ export function buildConfigView(state: MutableProfileState, live = false): Confi
     models: supportedModels(agentKind, state.cfg.preferences?.model, modelCatalogHome(state), state.profileConfig.dsh),
     messageReply: getMessageReplyMode(state.cfg),
     showToolCalls: getShowToolCalls(state.cfg),
+    toolDisplayMode: getToolDisplayMode(state.cfg),
     cotMessages: getCotMessages(state.cfg),
     maxConcurrentRuns: getMaxConcurrentRuns(state.cfg),
     runIdleTimeoutMinutes: ms ? Math.round(ms / 60_000) : 0,
@@ -243,8 +248,10 @@ function parseConfigBody(state: MutableProfileState, body: unknown): ParsedConfi
     fv.messageReply === 'markdown' || fv.messageReply === 'text' || fv.messageReply === 'card'
       ? fv.messageReply
       : getMessageReplyMode(state.cfg);
-  const showToolCalls =
-    typeof fv.showToolCalls === 'boolean' ? fv.showToolCalls : getShowToolCalls(state.cfg);
+  const toolDisplayMode = isToolDisplayMode(fv.toolDisplayMode)
+    ? fv.toolDisplayMode
+    : typeof fv.showToolCalls === 'boolean' ? (fv.showToolCalls ? 'full' : 'hidden') : getToolDisplayMode(state.cfg);
+  const showToolCalls = toolDisplayMode !== 'hidden';
   const cotMessages: CotMessagesMode =
     fv.cotMessages === 'brief' || fv.cotMessages === 'detailed' || fv.cotMessages === 'off'
       ? fv.cotMessages
@@ -295,6 +302,7 @@ function parseConfigBody(state: MutableProfileState, body: unknown): ParsedConfi
       messageReply,
       messageReplyMigrated: true,
       showToolCalls,
+      toolDisplayMode,
       cotMessages,
       maxConcurrentRuns,
       runIdleTimeoutMinutes,

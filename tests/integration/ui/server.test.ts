@@ -133,6 +133,19 @@ describe('ui server (supervisor-backed)', () => {
     expect(config.live).toBe(true);
   });
 
+  it.each(['claude', 'work'])('persists tool modes through online/offline API for %s', async (profile) => {
+    const path = `/api/config?profile=${profile}`;
+    const selected = await json(await post(path, handle.token, { toolDisplayMode: 'live-only', showToolCalls: false }));
+    expect(selected).toMatchObject({ toolDisplayMode: 'live-only', showToolCalls: true });
+    const unchanged = await json(await post(path, handle.token, { toolDisplayMode: 'invalid' }));
+    expect(unchanged.toolDisplayMode).toBe('live-only');
+    expect((await json(await get(path, handle.token))).toolDisplayMode).toBe('live-only');
+    const saved = (await loadRootConfig(configPath))!;
+    expect(saved.profiles[profile]!.preferences.toolDisplayMode).toBe('live-only');
+    const legacy = await json(await post(path, handle.token, { showToolCalls: false }));
+    expect(legacy).toMatchObject({ toolDisplayMode: 'hidden', showToolCalls: false });
+  });
+
   it('persists Codex tuning and rejects invalid effort without applying changes', async () => {
     const root = (await loadRootConfig(configPath))!;
     root.profiles.work!.agentKind = 'codex';

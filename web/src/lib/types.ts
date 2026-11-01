@@ -47,6 +47,7 @@ export interface ConfigView {
   models: ModelOption[];
   messageReply: MessageReply;
   showToolCalls: boolean;
+  toolDisplayMode: 'full' | 'live-only' | 'hidden';
   cotMessages: CotMessages;
   maxConcurrentRuns: number;
   runIdleTimeoutMinutes: number;

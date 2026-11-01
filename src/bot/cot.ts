@@ -261,7 +261,7 @@ export function finalAnswerOnlyState(state: RunState): RunState {
 export async function consumeCotEvents(
   events: AsyncIterable<AgentEvent>,
   publisher: CotPublisher,
-  opts: { detail: CotMessagesMode },
+  opts: { detail: CotMessagesMode; getToolDisplayMode?: () => import('../config/schema').ToolDisplayMode },
 ): Promise<void> {
   let reasoningOpen = false;
   let textStepOpen = false;
@@ -275,6 +275,10 @@ export async function consumeCotEvents(
   try {
     for await (const evt of events) {
       if (evt.type === 'system' || evt.type === 'usage') continue;
+      // No tool event can be removed from an existing COT bubble. Live-only
+      // is routed to editable cards; also suppress payloads defensively here.
+      if ((evt.type === 'tool_use' || evt.type === 'tool_result') &&
+          (opts.getToolDisplayMode?.() ?? 'full') !== 'full') continue;
       if (evt.type === 'thinking') {
         closeTextIfNeeded();
         if (!reasoningOpen) {

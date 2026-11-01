@@ -40,6 +40,8 @@ import {
   getMessageReplyMode,
   getRunIdleTimeoutMs,
   getShowToolCalls,
+  getToolDisplayMode,
+  isToolDisplayMode,
   secretKeyForApp,
 } from '../config/schema';
 import type {
@@ -3141,6 +3143,7 @@ async function showConfigForm(ctx: CommandContext): Promise<void> {
     model,
     messageReply: getMessageReplyMode(ctx.controls.cfg),
     showToolCalls: getShowToolCalls(ctx.controls.cfg),
+    toolDisplayMode: getToolDisplayMode(ctx.controls.cfg),
     cotMessages: getCotMessages(ctx.controls.cfg),
     maxConcurrentRuns: getMaxConcurrentRuns(ctx.controls.cfg),
     runIdleTimeoutMinutes: ms ? Math.round(ms / 60_000) : 0,
@@ -3194,7 +3197,10 @@ async function submitConfig(ctx: CommandContext): Promise<void> {
       ? (rawReply as MessageReplyMode)
       : getMessageReplyMode(ctx.controls.cfg);
   const rawTools = String(fv.show_tool_calls ?? '').trim();
-  const showToolCalls = rawTools !== 'hide';
+  const toolDisplayMode = isToolDisplayMode(fv.tool_display_mode)
+    ? fv.tool_display_mode
+    : rawTools === 'show' ? 'full' : rawTools === 'hide' ? 'hidden' : getToolDisplayMode(ctx.controls.cfg);
+  const showToolCalls = toolDisplayMode !== 'hidden';
   // Custom input takes precedence; omitted values keep the current
   // selection. Store `undefined` for the "default" sentinel to keep config
   // tidy (resolveModelArg treats both the same way).
@@ -3317,6 +3323,7 @@ async function submitConfig(ctx: CommandContext): Promise<void> {
       // explicitly picks any option gets out of the legacy-coerce path.
       messageReplyMigrated: true,
       showToolCalls,
+      toolDisplayMode,
       cotMessages,
       maxConcurrentRuns,
       runIdleTimeoutMinutes,
@@ -3363,6 +3370,7 @@ async function submitConfig(ctx: CommandContext): Promise<void> {
       mode,
       messageReply,
       showToolCalls,
+      toolDisplayMode,
       cotMessages,
       maxConcurrentRuns,
       runIdleTimeoutMinutes,
@@ -3385,6 +3393,7 @@ async function submitConfig(ctx: CommandContext): Promise<void> {
         ...tuning,
         messageReply,
         showToolCalls,
+        toolDisplayMode,
         cotMessages,
         maxConcurrentRuns,
         runIdleTimeoutMinutes,

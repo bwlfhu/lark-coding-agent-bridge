@@ -65,6 +65,25 @@ describe('COT event mapping', () => {
     expect(JSON.parse(result?.content ?? '{}').content).toBe('workspace');
   });
 
+  it.each(['hidden', 'live-only'] as const)('suppresses all tool payloads in %s even with detailed COT', async (mode) => {
+    const client = new FakeCotClient();
+    const publisher = new CotPublisher({ client, chatId: 'oc_chat', originMessageId: 'om_origin', runId: 'redacted', scope: 'oc_chat', inputPreview: 'run' });
+    await publisher.start();
+    await consumeCotEvents(iterate([
+      { type: 'thinking', delta: '检查思路' },
+      { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'SECRET-COMMAND' } },
+      { type: 'tool_result', id: 't1', output: 'SECRET-OUTPUT', isError: true },
+      { type: 'text', delta: '检查完成' },
+      { type: 'error', message: 'agent failed', terminationReason: 'failed' },
+    ]), publisher, { detail: 'detailed', getToolDisplayMode: () => mode });
+    expect(client.events.some((e) => e.event_type.startsWith('TOOL_CALL'))).toBe(false);
+    expect(JSON.stringify(client.events)).not.toContain('SECRET');
+    expect(client.events.map((e) => e.event_type)).toContain('RUN_ERROR');
+    expect(client.events.map((e) => e.event_type)).toContain('REASONING_MESSAGE_CONTENT');
+    expect(client.events.map((e) => e.event_type)).toContain('TEXT_MESSAGE_CONTENT');
+    expect(client.completed).toEqual(['error']);
+  });
+
   it('derives final answer state from text blocks only', () => {
     const state: RunState = {
       blocks: [

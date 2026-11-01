@@ -3,6 +3,15 @@ import { configFormCard, configSavedCard } from '../../../src/card/config-card';
 import type { ConfigFormOpts } from '../../../src/card/config-card';
 
 describe('config group response mode cards', () => {
+  it('offers all three tool modes and maps legacy boolean options', () => {
+    const base = options('owner-default');
+    expect(findNamed(configFormCard({ ...base, toolDisplayMode: 'live-only' }), 'tool_display_mode')).toMatchObject({
+      initial_option: 'live-only', options: [{ value: 'full' }, { value: 'live-only' }, { value: 'hidden' }],
+    });
+    expect(findNamed(configFormCard({ ...base, showToolCalls: false }), 'tool_display_mode')).toMatchObject({ initial_option: 'hidden' });
+    expect(JSON.stringify(configSavedCard({ ...base, toolDisplayMode: 'live-only' }))).toContain('live-only');
+  });
+
   it('shows Codex tuning and the saved values without exposing unsupported Claude controls', () => {
     const codex = { ...options('owner-default'), agentKind: 'codex' as const, reasoningEffort: 'ultra', fastMode: 'on' };
     expect(findNamed(configFormCard(codex), 'reasoning_effort')).toMatchObject({ initial_option: 'ultra' });

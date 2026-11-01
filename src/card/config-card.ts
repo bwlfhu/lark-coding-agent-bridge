@@ -7,7 +7,7 @@ import type {
   ProfileMode,
   ProfileConfig,
 } from '../config/profile-schema';
-import type { CotMessagesMode, MessageReplyMode } from '../config/schema';
+import type { CotMessagesMode, MessageReplyMode, ToolDisplayMode } from '../config/schema';
 
 export interface ConfigFormOpts {
   /** Profile's agent kind — decides which model catalog the picker shows. */
@@ -22,6 +22,7 @@ export interface ConfigFormOpts {
   fastMode?: string;
   messageReply: MessageReplyMode;
   showToolCalls: boolean;
+  toolDisplayMode?: ToolDisplayMode;
   cotMessages: CotMessagesMode;
   maxConcurrentRuns: number;
   /** 0 means "disabled". */
@@ -243,16 +244,18 @@ export function configFormCard(opts: ConfigFormOpts): object {
               tag: 'markdown',
               content:
                 '\n**工具调用显示**\n' +
-                '_显示:可以看到 bot 跑了什么命令、读了哪些文件等过程_\n' +
-                '_隐藏:只看 agent 最终的文字答复,跳过所有工具块_',
+                '_完整显示:保留工具过程与结果_\n' +
+                '_仅运行时显示:底部显示当前命令，完成后隐藏_\n' +
+                '_隐藏:不显示工具信息_',
             },
             {
               tag: 'select_static',
-              name: 'show_tool_calls',
-              initial_option: opts.showToolCalls ? 'show' : 'hide',
+              name: 'tool_display_mode',
+              initial_option: opts.toolDisplayMode ?? (opts.showToolCalls ? 'full' : 'hidden'),
               options: [
-                { text: { tag: 'plain_text', content: '显示(默认)' }, value: 'show' },
-                { text: { tag: 'plain_text', content: '隐藏' }, value: 'hide' },
+                { text: { tag: 'plain_text', content: '完整显示(默认)' }, value: 'full' },
+                { text: { tag: 'plain_text', content: '仅运行时显示' }, value: 'live-only' },
+                { text: { tag: 'plain_text', content: '隐藏' }, value: 'hidden' },
               ],
             },
             {
@@ -416,7 +419,7 @@ export function configSavedCard(opts: ConfigFormOpts): object {
             `**模型**:\`${modelLabel(opts.agentKind, opts.model)}\`\n` +
             (opts.agentKind === 'codex' ? `**推理强度**: ${opts.reasoningEffort ?? '跟随 CLI 默认'}\n**快速模式**: ${FAST_MODE_OPTIONS.find((m) => m.value === (opts.fastMode ?? 'default'))?.label}\n` : '') +
             `**消息回复方式**:${replyLabel}\n` +
-            `**工具调用显示**:\`${opts.showToolCalls ? 'show' : 'hide'}\`\n` +
+            `**工具调用显示**:\`${opts.toolDisplayMode ?? (opts.showToolCalls ? 'full' : 'hidden')}\`\n` +
             `**COT 过程消息**:\`${cotLabel}\`\n` +
             `**并发上限**:\`${opts.maxConcurrentRuns}\`\n` +
             `**run 探活**:\`${opts.runIdleTimeoutMinutes > 0 ? `${opts.runIdleTimeoutMinutes} 分钟` : '关闭'}\`\n` +

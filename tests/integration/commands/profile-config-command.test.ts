@@ -66,6 +66,20 @@ afterEach(async () => {
 });
 
 describe('profile-aware account and config commands', () => {
+  it('saves the canonical tool mode and preserves it on absent or invalid fields', async () => {
+    vi.useFakeTimers();
+    const h = await createHarness();
+    await h.command('/config submit', { tool_display_mode: 'live-only', show_tool_calls: 'hide' });
+    let root = await waitForRoot(h.rootDir, (r) => r.profiles.claude?.preferences.toolDisplayMode === 'live-only');
+    expect(root.profiles.claude?.preferences.showToolCalls).toBe(true);
+    await h.command('/config submit', { tool_display_mode: 'invalid', max_concurrent_runs: '9' });
+    root = await waitForRoot(h.rootDir, (r) => r.profiles.claude?.preferences.maxConcurrentRuns === 9);
+    expect(root.profiles.claude?.preferences.toolDisplayMode).toBe('live-only');
+    await h.command('/config submit', { show_tool_calls: 'hide' });
+    root = await waitForRoot(h.rootDir, (r) => r.profiles.claude?.preferences.toolDisplayMode === 'hidden');
+    expect(root.profiles.claude?.preferences.showToolCalls).toBe(false);
+  });
+
   it('saves /config submit into the active v2 profile without flattening root config', async () => {
     vi.useFakeTimers();
     const h = await createHarness();
