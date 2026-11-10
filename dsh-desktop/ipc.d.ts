@@ -1,0 +1,10 @@
+import type { Socket } from 'node:net';
+export const dshHome: string;
+export const integrationDir: string;
+export const hostSocket: string;
+export const bridgeSocket: string;
+export const MAX_FRAME: number;
+export function frameReader(socket: Socket, handler: (frame: Record<string, unknown>) => void): void;
+export function writeFrame(socket: Socket, frame: unknown): void;
+export function rpc(path: string, request: unknown, options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<Record<string, unknown>>;
+export function removeStaleSocket(path: string): Promise<void>;

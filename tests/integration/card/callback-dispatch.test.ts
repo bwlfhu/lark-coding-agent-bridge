@@ -159,7 +159,7 @@ type Harness = {
 };
 
 async function createHarness(
-  opts: { callbackAuth?: boolean; chatMode?: 'p2p' | 'group' | 'topic' } = {},
+  opts: { callbackAuth?: boolean; chatMode?: 'p2p' | 'group' | 'topic'; desktopControl?: Parameters<typeof handleCardAction>[0]['desktopControl'] } = {},
 ): Promise<Harness> {
   const tmp = await createTmpProfile('callback-dispatch-test-');
   const channel = createFakeChannel();
@@ -251,6 +251,7 @@ async function createHarness(
         pending,
         chatModeCache,
         ...(opts.callbackAuth === false ? {} : { callbackAuth: auth }),
+        desktopControl: opts.desktopControl,
         callbackPolicyFingerprint: 'fp-1',
       }),
   };
@@ -271,3 +272,16 @@ function cardEvent(
     raw: formValue ? { action: { form_value: formValue } } : undefined,
   } as unknown as CardActionEvent;
 }
+
+
+describe('Desktop callback actor authorization', () => {
+  it('rejects an unauthorized DM actor before dispatching a Desktop answer', async () => {
+    const handleCard = vi.fn();
+    const h = await createHarness({ chatMode: 'p2p', desktopControl: { handleCard, close: async () => {} } });
+    await h.dispatch({ __dsh_desktop_answer: true, token: 'test', index: 0, selected: 'Allow' });
+    expect(handleCard).not.toHaveBeenCalled();
+    h.controls.botOwnerId = 'ou_operator';
+    await h.dispatch({ __dsh_desktop_answer: true, token: 'test', index: 0, selected: 'Allow' });
+    expect(handleCard).toHaveBeenCalledOnce();
+  });
+});

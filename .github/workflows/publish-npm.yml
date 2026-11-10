@@ -86,4 +86,5 @@ jobs:
           echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
 
       - name: Publish the verified artifact with npm Trusted Publishing
-        run: npm publish "${{ steps.package.outputs.artifact }}" --access public --tag latest
+        run: |
+          npm publish "${{ steps.package.outputs.artifact }}" --access public --tag "$(node -p 'require("./package.json").version.includes("-") ? "beta" : "latest"')"

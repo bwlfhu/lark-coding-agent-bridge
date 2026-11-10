@@ -18,6 +18,8 @@ import {
 } from '../agent/prompt';
 import type { AgentAdapter, AgentEvent } from '../agent/types';
 import { handleCardAction } from '../card/dispatcher';
+import { desktopControlSocketPath } from '../agent/dsh/desktop-adapter';
+import { startDesktopControl } from '../agent/dsh/desktop-control';
 import { CallbackAuth } from '../card/callback-auth';
 import { CallbackNonceStore } from '../card/callback-store';
 import { renderCard } from '../card/run-renderer';
@@ -1471,6 +1473,13 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
 
   const channel = createLarkChannel(opts);
   installCardkitStreamDiagnostics(channel);
+  if (controls.profileConfig.dsh?.transport === 'desktop' && !deps.appPaths?.profileDir) {
+    throw new Error('DSH Desktop transport requires a profile state directory');
+  }
+  const desktopControl = controls.profileConfig.agentKind === 'dsh' && controls.profileConfig.dsh?.transport === 'desktop'
+    ? await startDesktopControl(channel, deps.appPaths?.profileDir ?? '',
+      desktopControlSocketPath(deps.appPaths?.profileDir ?? '', controls.profileConfig.dsh.dshHome))
+    : undefined;
   const media = new MediaCache(channel, deps.appPaths?.mediaDir);
 
   // Pending → run handoff: while a run is active on a chat, block its pending
@@ -1619,6 +1628,7 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
           callbackAuth,
           callbackPolicyFingerprintForScope: (scope) =>
             activePolicyFingerprints.get(scope)?.fingerprint,
+          desktopControl,
         });
       }).catch((err) => log.fail('cardAction', err));
     },
@@ -2070,7 +2080,10 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
     controls.meeting = meetingManager;
   }
 
-  await channel.connect();
+  try { await channel.connect(); } catch (error) {
+    await desktopControl?.close();
+    throw error;
+  }
   // Owner identity is persisted per app. Resolve it only when missing; normal
   // restarts do not depend on the application API and no polling timer exists.
   if (!controls.botOwnerId) await controls.refreshOwner(channel);
@@ -2173,6 +2186,7 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
     channel,
     disconnect: async () => {
       activeRuns.pauseNewRuns('bridge-disconnect');
+      await desktopControl?.close();
       knownChatsRefresh.stop();
       keepalive.stop();
       // Stop meeting timers but stay in the meetings: /reconnect tears the

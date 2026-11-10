@@ -1,6 +1,6 @@
 {
   "name": "@bwlfhu/lark-channel-bridge",
-  "version": "0.8.3-beta.1",
+  "version": "0.8.3-beta.2",
   "description": "Feishu/Lark bridge for local Codex, Claude Code and DeepSeek Harness",
   "type": "module",
   "packageManager": "pnpm@10.33.0",
@@ -23,6 +23,9 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./dsh-desktop": {
+      "import": "./dsh-desktop/host.js"
     }
   },
   "files": [
@@ -36,7 +39,10 @@
     "LICENSE",
     "vendor",
     "docs/runbooks/dsh-profile.md",
-    "docs/maintenance.md"
+    "docs/runbooks/dsh-desktop.md",
+    "docs/releases/0.8.3-beta.2.md",
+    "docs/maintenance.md",
+    "dsh-desktop"
   ],
   "scripts": {
     "dev": "tsup --watch",
@@ -125,5 +131,10 @@
     "deepseek",
     "dsh"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./dsh-desktop/cordis.patch.yml"
+    }
+  }
 }

@@ -8,6 +8,9 @@ import type { DshProviderConfig, DshProviderModel } from './patches';
  * the resolved shim path recorded.
  */
 export interface DshConfig {
+  /** Omission preserves the CLI backend. Desktop connects to its existing Host. */
+  transport?: 'cli' | 'desktop';
+  desktopSocketPath?: string;
   /** The `dsh` launcher: a `.cmd` shim on Windows, a shebang script elsewhere. */
   binaryPath: string;
   realpath?: string;
@@ -38,12 +41,18 @@ export function normalizeDshConfig(input: unknown): DshConfig {
     throw new Error('dsh profile requires dsh.binaryPath');
   }
 
+  if (raw.transport !== undefined && raw.transport !== 'cli' && raw.transport !== 'desktop') {
+    throw new Error('dsh.transport must be cli or desktop');
+  }
+
   const patches = Array.isArray(raw.patches)
     ? raw.patches.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '')
     : [];
 
   return {
     binaryPath,
+    ...(raw.transport === 'desktop' ? { transport: 'desktop' as const } : {}),
+    ...(nonEmpty(raw.desktopSocketPath) ? { desktopSocketPath: raw.desktopSocketPath } : {}),
     ...(typeof raw.realpath === 'string' ? { realpath: raw.realpath } : {}),
     ...(typeof raw.version === 'string' ? { version: raw.version } : {}),
     ...(typeof raw.sha256 === 'string' ? { sha256: raw.sha256 } : {}),

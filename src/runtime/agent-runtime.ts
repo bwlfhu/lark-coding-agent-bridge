@@ -1,6 +1,7 @@
 import { ClaudeAdapter } from '../agent/claude/adapter';
 import { CodexAdapter } from '../agent/codex/adapter';
 import { DshAdapter } from '../agent/dsh/adapter';
+import { DesktopDshAdapter, desktopControlSocketPath } from '../agent/dsh/desktop-adapter';
 import { AgentPreflightError, type AgentAvailability, type LocalAgentId } from '../agent/preflight';
 import type { AgentAdapter } from '../agent/types';
 import type { AppPaths } from '../config/app-paths';
@@ -55,6 +56,16 @@ export function createRuntimeAgent(
     const dsh = profileConfig.dsh;
     if (!dsh?.binaryPath) {
       throw new Error('dsh profile requires dsh.binaryPath');
+    }
+    if (dsh.transport === 'desktop') {
+      return new DesktopDshAdapter({
+        socketPath: dsh.desktopSocketPath,
+        controlSocketPath: desktopControlSocketPath(appPaths.profileDir, dsh.dshHome),
+        dshHome: dsh.dshHome,
+        provider: dsh.provider,
+        larkChannel,
+        sandbox: profileConfig.sandbox.defaultMode,
+      });
     }
     return new DshAdapter({
       binary: dsh.binaryPath,

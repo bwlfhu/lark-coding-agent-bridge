@@ -55,10 +55,13 @@ node tools/pack-and-verify.mjs --output /outside/repository/lark-bridge-verified
 
 公开扫描和 clean-install smoke 不依赖原维护者私人的 denylist secret。公开扫描只能检测已定义的模式，不能证明绝无敏感信息；发布前仍需检查 diff 与归档清单。有真实私人 denylist 时通过 `LARK_BRIDGE_PRIVACY_DENYLIST_FILE` 或 `--patterns-file` 执行额外精确扫描；未提供时会明确显示跳过，不能声称该私人 gate 已通过。
 
-推送提交或 tag 不会自动发布 npm。可以在本地以包维护者身份发布已经验证的 tarball：`npm publish /outside/repository/lark-bridge-verified.tgz --access public --tag latest`。手动 GitHub Actions 发布还需配置本仓库的 `NPM_PUBLISH_ENABLED=true`、`NPM_PACKAGE_NAME=@bwlfhu/lark-channel-bridge` 和 npm Trusted Publisher，然后选择已有的 `v<package.version>` tag 运行发布 workflow；不要复用上游的发布身份。
+推送提交或 tag 不会自动发布 npm。可以在本地以包维护者身份发布已经验证的 tarball：`npm publish /outside/repository/lark-bridge-verified.tgz --access public --tag beta`。手动 GitHub Actions 发布还需配置本仓库的 `NPM_PUBLISH_ENABLED=true`、`NPM_PACKAGE_NAME=@bwlfhu/lark-channel-bridge` 和 npm Trusted Publisher，然后选择已有的 `v<package.version>` tag 运行发布 workflow；不要复用上游的发布身份。
 
 ## 升级与回滚
 
 每次升级先备份 bridge 的配置、profiles、session store/catalog/ledger 与正在使用的 release 路径（备份放仓库外，权限 0700/0600）。完成单元/集成/进程测试与原生模型的新建和续接后，停止旧服务，安装独立版本，指向原有配置，启动并验证。不得同时运行同一飞书应用的两个消息消费者。
 
 本轮仓库整合不自动替换正在运行的 Codex 服务。保留旧 runtime 和状态备份；出现回归时停止新服务，恢复旧 runtime。若状态 schema 变化，按成对备份恢复状态，避免单独回退二进制读新状态。对有副作用的半途任务，先核查执行结果，再人工续接，禁止自动重放。
+
+
+beta.2 提供官方 Desktop transport，详见 [桌面部署与回滚](runbooks/dsh-desktop.md)。预发布使用 `beta` dist-tag，正式稳定版才使用 `latest`。

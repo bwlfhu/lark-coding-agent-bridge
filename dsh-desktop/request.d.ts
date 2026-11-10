@@ -1,0 +1,2 @@
+export function shellEnvironment(env?: Record<string, unknown>): string;
+export function claimRequest(dir: string, request: { requestId: string; cwd: string; prompt: string; sessionId?: string; larkEnv?: Record<string, unknown> }): Promise<{ replay: Record<string, unknown>[]; envPath?: never; complete?: never } | { replay?: never; envPath: string; complete: (frames: Record<string, unknown>[]) => Promise<void> }>;

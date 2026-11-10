@@ -2,6 +2,8 @@
 
 本维护版在 KeepSilenceQP 的基础上支持 `claude`、`codex`、`dsh`。DSH 是本机运行的代理程序；模型可以来自其现有 API、兼容网关或本机推理服务。安装 DSH 不代表模型已经离线部署。
 
+Desktop 桌面模式自 beta.2 起可选，详见 [官方 Desktop + Computer Use 部署](dsh-desktop.md)。本文以下步骤针对 CLI transport。
+
 ## 安装与检查
 
 使用 Node.js >=20.19（推荐当前 LTS）和 pnpm 10.33。先按 DeepSeek 官方说明安装并配置 DSH，确保 `dsh --profile headless --help` 可用。已验证 DSH `0.2.1-rc.2` 的新会话与 `--session-id` 续接；不同版本需重新运行下述实机测试。

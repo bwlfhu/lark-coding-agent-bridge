@@ -5,6 +5,7 @@ import type { ChatModeCache } from '../bot/chat-mode-cache';
 import type { PendingQueue } from '../bot/pending-queue';
 import type { ProcessPool } from '../bot/process-pool';
 import type { CallbackAuth } from './callback-auth';
+import type { DesktopControl } from '../agent/dsh/desktop-control';
 import { runCommandHandler, type CommandContext, type Controls } from '../commands';
 import { log } from '../core/logger';
 import { canUseDm, canUseGroup } from '../policy/access';
@@ -40,6 +41,7 @@ export interface CardDispatchDeps {
   pending: PendingQueue;
   chatModeCache: ChatModeCache;
   callbackAuth?: CallbackAuth;
+  desktopControl?: DesktopControl;
   callbackPolicyFingerprint?: string;
   callbackPolicyFingerprintForScope?: (scope: string) => string | undefined;
 }
@@ -76,6 +78,11 @@ export async function handleCardAction(deps: CardDispatchDeps): Promise<void> {
       operator: operatorId.slice(-6),
       reason: accessDecision.reason,
     });
+    return;
+  }
+
+  if (payload.__dsh_desktop_answer === true) {
+    deps.desktopControl?.handleCard(deps.evt, payload, formValue);
     return;
   }
 

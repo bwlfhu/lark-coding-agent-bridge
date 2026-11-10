@@ -1,0 +1,3 @@
+- insert:
+    - id: lark-channel-bridge-desktop
+      name: '@bwlfhu/lark-channel-bridge/dsh-desktop'
