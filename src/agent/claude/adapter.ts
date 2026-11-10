@@ -6,6 +6,7 @@ import type { Readable, Writable } from 'node:stream';
 import { log } from '../../core/logger';
 import { mergeProcessEnv, spawnProcess, type SpawnedProcessByStdio } from '../../platform/spawn';
 import { composeBridgeSystemPrompt } from '../bridge-system-prompt';
+import { COMPLETION_REMINDER_JUDGE_SYSTEM_PROMPT } from '../completion-judge';
 import { buildLarkChannelEnv, type LarkChannelEnvContext } from '../lark-channel-env';
 import { createPromptRedactor } from '../prompt-redaction';
 import { checkAgentAvailability, type AgentAvailability } from '../preflight';
@@ -69,29 +70,41 @@ export class ClaudeAdapter implements AgentAdapter {
     // stream-json response. Pass the prompt via stdin and the appended system
     // prompt via a temp file (the same approach the Codex adapter uses) so no
     // special characters ever reach the shell.
-    const systemPrompt = composeBridgeSystemPrompt(this.botIdentity, opts.systemPromptAddendum);
+    const judgeOnly = opts.purpose === 'completion-judge';
+    const systemPrompt = judgeOnly
+      ? COMPLETION_REMINDER_JUDGE_SYSTEM_PROMPT
+      : composeBridgeSystemPrompt(this.botIdentity, opts.systemPromptAddendum);
     const redactPrompt = createPromptRedactor([opts.prompt, systemPrompt, opts.systemPromptAddendum ?? '']);
     const systemPromptFile = writeSystemPromptFile(systemPrompt);
 
-    const args = [
-      '-p',
-      '--output-format',
-      'stream-json',
-      '--verbose',
-      '--permission-mode',
-      opts.permissionMode ?? CLAUDE_DEFAULT_PERMISSION_MODE,
-      '--append-system-prompt-file',
-      systemPromptFile.path,
-    ];
-    if (opts.sessionId) args.push('--resume', opts.sessionId);
+    const args = ['-p', '--output-format', 'stream-json', '--verbose'];
+    if (judgeOnly) {
+      args.push(
+        '--no-session-persistence',
+        '--safe-mode',
+        '--tools',
+        '',
+        '--disable-slash-commands',
+        '--append-system-prompt-file',
+        systemPromptFile.path,
+      );
+    } else {
+      args.push(
+        '--permission-mode',
+        opts.permissionMode ?? CLAUDE_DEFAULT_PERMISSION_MODE,
+        '--append-system-prompt-file',
+        systemPromptFile!.path,
+      );
+      if (opts.sessionId) args.push('--resume', opts.sessionId);
+    }
     if (opts.model) args.push('--model', opts.model);
 
     const child = spawnProcess(this.binary, args, {
       cwd: opts.cwd,
-      env: mergeProcessEnv(process.env, buildLarkChannelEnv({
-        ...this.larkChannel,
-        routeId: opts.routeId,
-      })),
+      env: mergeProcessEnv(
+        process.env,
+        buildLarkChannelEnv(judgeOnly ? undefined : { ...this.larkChannel, routeId: opts.routeId }),
+      ),
       stdio: ['pipe', 'pipe', 'pipe'],
     }) as ClaudeChild;
 

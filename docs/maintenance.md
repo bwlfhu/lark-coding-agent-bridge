@@ -1,6 +1,13 @@
 # 自有维护分支
 
-维护仓库：<https://github.com/bwlfhu/lark-coding-agent-bridge>。CLI 仍为 `lark-channel-bridge`；npm 包为 `@bwlfhu/lark-channel-bridge`，首个整合版本为 `0.8.0-allcam.1`，当前版本为 `0.8.2`。使用 `npm install -g @bwlfhu/lark-channel-bridge@0.8.2` 安装。
+维护仓库：<https://github.com/bwlfhu/lark-coding-agent-bridge>。CLI 仍为 `lark-channel-bridge`；npm 包为 `@bwlfhu/lark-channel-bridge`，首个整合版本为 `0.8.0-allcam.1`，最新 beta 为 `0.8.3-beta.1`。使用 `npm install -g @bwlfhu/lark-channel-bridge@0.8.3-beta.1` 安装 beta。
+
+## 0.8.3-beta.1 完成提醒
+
+- 群/话题里同一位真人明确 @ 当前 bot、任务正常完成且运行不少于 30 秒时，使用当前 agent/model 做一次独立 LLM 判断。
+- 仅判断为值得回看时，发送独立原生 @ 提醒给固定的原提问人；快速回复、bot 来源、混合发起人、失败/中断和无法判断均不提醒。
+- Judge 不续接原会话；Claude 关闭工具与会话持久化，Codex 使用 ephemeral、只读 sandbox 和隔离临时目录。DSH 暂不支持提醒判断，因为当前 CLI 没有可验证的禁用工具选项。
+- 此 beta 默认启用提醒判断，没有用户配置开关；提醒消息发送失败不会影响原任务结果。
 
 ## 0.8.2 工具展示
 

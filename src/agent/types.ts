@@ -30,6 +30,7 @@ export const CLAUDE_DEFAULT_PERMISSION_MODE: ClaudePermissionMode = 'bypassPermi
 export interface AgentRunOptions {
   runId: string;
   prompt: string;
+  purpose?: 'task' | 'completion-judge';
   cwd?: string;
   sessionId?: string;
   threadId?: string;

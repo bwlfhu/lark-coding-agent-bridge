@@ -1,5 +1,15 @@
 import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { AgentAdapter, AgentEvent, AgentRun } from '../agent/types';
+import {
+  buildCompletionReminderJudgePrompt,
+  COMPLETION_REMINDER_JUDGE_TIMEOUT_MS,
+  COMPLETION_REMINDER_JUDGE_SYSTEM_PROMPT,
+  COMPLETION_REMINDER_MAX_OUTPUT_CHARS,
+  parseCompletionReminderDecision,
+} from '../agent/completion-judge';
 import {
   ActiveRuns,
   type ReplacementReservation,
@@ -83,6 +93,96 @@ export class RunExecutor {
 
   interruptEpoch(scopeId: string): number {
     return this.activeRuns.interruptEpoch(scopeId);
+  }
+
+  async evaluateCompletionReminder(input: {
+    question: string;
+    answer: string;
+    model?: string;
+  }): Promise<boolean> {
+    if (this.agent.id === 'dsh' || this.activeRuns.newRunsPaused()) return false;
+
+    const acquireAbort = new AbortController();
+    const acquireTimer = setTimeout(() => acquireAbort.abort(), 5000);
+    let release: (() => void) | undefined;
+    try {
+      release = await this.pool.acquire(acquireAbort.signal);
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(acquireTimer);
+    }
+
+    let cwd: string | undefined;
+    let run: AgentRun | undefined;
+    try {
+      cwd = await mkdtemp(join(tmpdir(), 'lark-bridge-completion-judge-'));
+      const options = {
+        runId: `completion-judge-${randomUUID()}`,
+        purpose: 'completion-judge' as const,
+        prompt: buildCompletionReminderJudgePrompt(input.question, input.answer),
+        cwd,
+        model: input.model,
+        reasoningEffort: 'low',
+        sandbox: 'read-only' as const,
+        systemPromptAddendum: COMPLETION_REMINDER_JUDGE_SYSTEM_PROMPT,
+      };
+      await this.agent.prepareRun?.(options);
+      run = this.agent.run(options);
+
+      let output = '';
+      const collect = async (): Promise<'completed' | 'invalid'> => {
+        for await (const event of run!.events) {
+          if (event.type === 'tool_use') {
+            await run!.stop().catch(() => undefined);
+            return 'invalid';
+          }
+          if (event.type === 'text') {
+            output += event.delta;
+            if (output.length > COMPLETION_REMINDER_MAX_OUTPUT_CHARS) return 'invalid';
+          } else if (event.type === 'error') {
+            return 'invalid';
+          } else if (event.type === 'done') {
+            return event.terminationReason === 'normal' ? 'completed' : 'invalid';
+          }
+        }
+        return 'invalid';
+      };
+
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const result = await Promise.race([
+        collect().catch(() => 'invalid' as const),
+        new Promise<'timeout'>((resolve) => {
+          timeout = setTimeout(() => resolve('timeout'), COMPLETION_REMINDER_JUDGE_TIMEOUT_MS);
+          timeout.unref?.();
+        }),
+      ]);
+      if (timeout) clearTimeout(timeout);
+      if (result !== 'completed') {
+        await run.stop().catch(() => undefined);
+        await run.waitForExit(2000).catch(() => false);
+        return false;
+      }
+
+      if (!(await run.waitForExit(2000).catch(() => false))) {
+        await run.stop().catch(() => undefined);
+        return false;
+      }
+      return parseCompletionReminderDecision(output);
+    } catch (error) {
+      log.warn('completion-reminder', 'judge-failed', {
+        agent: this.agent.id,
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
+      return false;
+    } finally {
+      if (run) {
+        await run.stop().catch(() => undefined);
+        await run.waitForExit(2000).catch(() => false);
+      }
+      if (cwd) await rm(cwd, { recursive: true, force: true }).catch(() => undefined);
+      release?.();
+    }
   }
 
   async submit(input: SubmitRunInput): Promise<RunExecution> {

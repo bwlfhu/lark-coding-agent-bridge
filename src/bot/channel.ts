@@ -31,6 +31,11 @@ import {
   type RunState,
 } from '../card/run-state';
 import { renderText } from '../card/text-renderer';
+import {
+  completionReminderRecipient,
+  COMPLETION_REMINDER_THRESHOLD_MS,
+  maybeSendCompletionReminder,
+} from './completion-reminder';
 import { tryHandleCommand, type Controls } from '../commands';
 import { ensureBotRegistrySelfRegistration } from '../config/bot-registry-service';
 import type { AppConfig } from '../config/schema';
@@ -2558,6 +2563,12 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
   const lastMsg = batch[batch.length - 1];
   if (!firstMsg || !lastMsg) return;
   const isReactionBatch = lastMsg.rawContentType === ('reaction' as never);
+  const reminderRecipient = completionReminderRecipient(batch, {
+    isGroup: firstMsg.chatType === 'group' && mode !== 'p2p',
+    isReaction: isReactionBatch,
+    isDirectCorrection: Boolean(deps.directCorrection),
+    isHumanSender: shouldRegisterInboundTrigger,
+  });
   const reactionTurnId = isReactionBatch
     ? (reactionTurnIdOf(firstMsg) ?? deps.lease?.unitId)
     : undefined;
@@ -2852,6 +2863,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
   }
 
   const { execution, cwdRealpath: cwd } = flow;
+  const agentStartedAt = Date.now();
   let activeFlow = flow;
   const promptAdmissions = flow.promptSession ? [flow.promptSession.admission] : [];
   const handle = execution.handle;
@@ -3150,6 +3162,44 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
       } : {}),
   };
 
+  const scheduleCompletionReminder = (state: RunState): void => {
+    const elapsedMs = Date.now() - agentStartedAt;
+    if (
+      !reminderRecipient ||
+      state.terminal !== 'done' ||
+      elapsedMs < COMPLETION_REMINDER_THRESHOLD_MS
+    ) return;
+    const answer = renderText(finalAnswerOnlyState(state), cardRenderOptions);
+    const question = batch.map((message) => message.content).join('\n');
+    void maybeSendCompletionReminder({
+      recipient: reminderRecipient,
+      elapsedMs,
+      terminal: state.terminal,
+      question,
+      answer,
+      replyTo: lastMsg.messageId,
+      replyInThread: sendOpts.replyInThread === true,
+      judge: (promptQuestion, promptAnswer) =>
+        executor.evaluateCompletionReminder({
+          question: promptQuestion,
+          answer: promptAnswer,
+          model: requestedModel,
+        }),
+      send: async (text, options) => {
+        await channel.send(chatId, { text }, options);
+      },
+    }).then((sent) => {
+      if (sent) {
+        log.info('completion-reminder', 'sent', { elapsedMs, mode });
+      }
+    }).catch((error) => {
+      log.warn('completion-reminder', 'send-failed', {
+        elapsedMs,
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
+    });
+  };
+
   // For non-card modes Claude's output doesn't surface visually until either
   // a first streamed token (markdown mode) or the whole run ends (text mode).
   // Add a "Typing" reaction to the triggering message as an instant ack, but
@@ -3213,6 +3263,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         });
         _registerOutboundOnStream(cotResult);
         finalizeReactionRun(scope, reactionTurnMeta, runUnitId);
+        scheduleCompletionReminder(finalState);
         return;
       }
       log.warn('cot', 'fallback-existing-reply', { reason: 'create-disabled' });
@@ -3281,6 +3332,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
       });
       // Reaction lifecycle: mark terminal after render+stream complete
       finalizeReactionRun(scope, reactionTurnMeta, runUnitId);
+      scheduleCompletionReminder(latestState);
     } else if (replyMode === 'markdown') {
       let latestState: RunState = initialState;
       let latestMarkdown = renderMarkdownStreamText(latestState, cardRenderOptions);
@@ -3397,6 +3449,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
       });
       // Reaction lifecycle: mark terminal after render+stream complete
       finalizeReactionRun(scope, reactionTurnMeta, runUnitId);
+      scheduleCompletionReminder(latestState);
     } else {
       // text mode: drain the agent stream without sending anything during
       // the run, then post the final rendered text once as a plain markdown
@@ -3424,6 +3477,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
       // Reaction lifecycle: register outbound for text mode
       _registerOutboundOnStream(sendResult);
       finalizeReactionRun(scope, reactionTurnMeta, runUnitId);
+      scheduleCompletionReminder(finalState);
     }
   } catch (err) {
     log.fail('stream', err);

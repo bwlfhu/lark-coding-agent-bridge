@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CodexAdapter } from '../../src/agent/codex/adapter.js';
 import { buildCodexArgs } from '../../src/agent/codex/argv.js';
 import { buildBridgeSystemPrompt } from '../../src/agent/bridge-system-prompt.js';
+import { COMPLETION_REMINDER_JUDGE_SYSTEM_PROMPT } from '../../src/agent/completion-judge.js';
 import { log } from '../../src/core/logger.js';
 import type { AgentEvent } from '../../src/agent/types.js';
 
@@ -92,6 +93,45 @@ describe('CodexAdapter process contract', () => {
       CODEX_HOME: '/outer/codex-home',
     });
     expect(record.env.APP_SECRET).toBe('inherited-secret');
+  });
+
+  it('runs a completion judge in an ephemeral read-only context without resuming a thread', async () => {
+    const fake = await createFakeCodex({
+      lines: [
+        { type: 'thread.started', thread_id: 'judge-thread' },
+        { type: 'agent_message', message: '{"notify":true}' },
+        { type: 'turn.completed' },
+      ],
+    });
+    cleanup.push(fake.dir);
+    const cwd = await realpath(fake.dir);
+
+    const run = new CodexAdapter({ binary: fake.path, profileStateDir: fake.dir }).run({
+      runId: 'run-completion-judge',
+      purpose: 'completion-judge',
+      prompt: '{"question":"work","final_answer":"done"}',
+      cwd,
+      threadId: 'existing-thread-must-not-resume',
+      model: 'codex-test-model',
+    });
+
+    expect(await collect(run.events)).toContainEqual({
+      type: 'done',
+      threadId: 'judge-thread',
+      terminationReason: 'normal',
+    });
+    const record = await readRecord(fake.recordPath);
+    expect(record.argv).toContain('--ephemeral');
+    expect(record.argv).toContain('--sandbox');
+    expect(record.argv[record.argv.indexOf('--sandbox') + 1]).toBe('read-only');
+    expect(record.argv).toContain('--ignore-user-config');
+    expect(record.argv).toContain('--ignore-rules');
+    expect(record.argv).toContain('shell_environment_policy.inherit="none"');
+    expect(record.argv).not.toContain('resume');
+    expect(record.argv).not.toContain('--image');
+    expect(readDeveloperInstructions(record.argv)).toBe(COMPLETION_REMINDER_JUDGE_SYSTEM_PROMPT);
+    expect(record.stdin).toContain('"question":"work"');
+    expect(record.env.LARK_CHANNEL_PROFILE).toBeUndefined();
   });
 
   it('injects the active bridge profile env while preserving Codex env overrides', async () => {

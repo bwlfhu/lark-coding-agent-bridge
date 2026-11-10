@@ -11,7 +11,7 @@ A lightweight bot that bridges Feishu / Lark messenger with your local Claude Co
 
 Based on KeepSilenceQP `0.7.1-qp.4`, preserving streaming-card recovery, Codex final-reply handling and group-prompt session binding, with the **DeepSeek Harness (DSH)** backend selectively adapted from RoverTang. Claude Code, Codex and DSH retain separate session identities. Interrupted tasks are never automatically replayed.
 
-Install version `0.8.2` with `npm install -g @bwlfhu/lark-channel-bridge@0.8.2`. This release adds full, live-only and hidden tool display modes, including a transient current-command footer without completed tool results. See the [DSH runbook](docs/runbooks/dsh-profile.md) for setup, existing credentials, local compatible APIs and limitations, and [maintenance guide](docs/maintenance.md) for future updates. The upstream integration history below is retained from KeepSilenceQP for provenance.
+Install the beta `0.8.3-beta.1` with `npm install -g @bwlfhu/lark-channel-bridge@0.8.3-beta.1`. Codex and Claude can use an LLM decision to send a native @ reminder to the human who explicitly @-mentioned the bot when a group task takes at least 30 seconds and completes with a result worth reviewing; DSH reminders are disabled until its CLI can guarantee a no-tools judge run. See [release notes](docs/releases/0.8.3-beta.1.md), the [DSH runbook](docs/runbooks/dsh-profile.md), and the [maintenance guide](docs/maintenance.md). The upstream integration history below is retained from KeepSilenceQP for provenance.
 
 ### Upstream integration record
 

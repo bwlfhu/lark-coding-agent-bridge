@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ClaudeAdapter } from '../../src/agent/claude/adapter.js';
 import type { AgentEvent } from '../../src/agent/types.js';
+import { COMPLETION_REMINDER_JUDGE_SYSTEM_PROMPT } from '../../src/agent/completion-judge.js';
 
 interface FakeBinary {
   path: string;
@@ -64,6 +65,47 @@ describe('ClaudeAdapter process contract', () => {
     expect(record.systemPrompt).not.toContain('__claude_cb');
     expect(record.argv).not.toContain('--resume');
     expect(record.argv).not.toContain('--model');
+  });
+
+  it('runs a completion judge with tools and session persistence disabled', async () => {
+    const fake = await createFakeClaude({
+      lines: [
+        { type: 'assistant', message: { content: [{ type: 'text', text: '{"notify":true}' }] } },
+        { type: 'result', session_id: 'judge-session' },
+      ],
+    });
+    cleanup.push(fake.dir);
+
+    const run = new ClaudeAdapter({
+      binary: fake.path,
+      larkChannel: { profile: 'private-profile', rootDir: '/private/channel-home' },
+    }).run({
+      runId: 'run-completion-judge',
+      purpose: 'completion-judge',
+      prompt: '{"question":"work","final_answer":"done"}',
+      cwd: fake.dir,
+      sessionId: 'existing-session-must-not-resume',
+      model: 'claude-test-model',
+    });
+
+    expect(await collect(run.events)).toContainEqual({
+      type: 'done',
+      sessionId: 'judge-session',
+      terminationReason: 'normal',
+    });
+    const record = await readRecord(fake.recordPath);
+    expect(record.argv).toContain('--no-session-persistence');
+    expect(record.argv.slice(record.argv.indexOf('--tools'), record.argv.indexOf('--tools') + 2)).toEqual([
+      '--tools',
+      '',
+    ]);
+    expect(record.argv).toContain('--disable-slash-commands');
+    expect(record.argv).toContain('--safe-mode');
+    expect(record.argv).not.toContain('--resume');
+    expect(record.argv).not.toContain('--permission-mode');
+    expect(record.systemPrompt).toBe(COMPLETION_REMINDER_JUDGE_SYSTEM_PROMPT);
+    expect(record.stdin).toContain('"question":"work"');
+    expect(record.env.LARK_CHANNEL_PROFILE).toBeUndefined();
   });
 
   it('injects the active bridge profile env into spawned runs', async () => {

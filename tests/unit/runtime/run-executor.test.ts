@@ -68,6 +68,86 @@ describe('RunExecutor policy runtime options', () => {
   });
 });
 
+describe('RunExecutor completion reminder judge', () => {
+  it('runs an isolated read-only classifier without a prior session', async () => {
+    const agent = new FakeAgentAdapter({
+      events: [
+        { type: 'text', delta: '{"notify":true}' },
+        { type: 'done', terminationReason: 'normal' },
+      ],
+    });
+    const executor = new RunExecutor({
+      agent,
+      pool: new ProcessPool(() => 1),
+      activeRuns: new ActiveRuns(),
+    });
+
+    await expect(executor.evaluateCompletionReminder({
+      question: 'Implement the requested change',
+      answer: 'The requested change is complete.',
+      model: 'configured-model',
+    })).resolves.toBe(true);
+
+    expect(agent.runOptions[0]).toMatchObject({
+      purpose: 'completion-judge',
+      model: 'configured-model',
+      reasoningEffort: 'low',
+      sandbox: 'read-only',
+    });
+    expect(agent.runOptions[0]).not.toHaveProperty('sessionId');
+    expect(agent.runOptions[0]).not.toHaveProperty('threadId');
+    expect(agent.runOptions[0]?.prompt).toContain('Implement the requested change');
+    expect(agent.runOptions[0]?.prompt).toContain('The requested change is complete.');
+    expect(agent.runOptions[0]?.cwd).not.toBe('/tmp/repo');
+  });
+
+  it('fails closed when the judge calls a tool or returns non-JSON output', async () => {
+    for (const events of [
+      [
+        { type: 'tool_use' as const, id: 'tool-1', name: 'command_execution', input: {} },
+        { type: 'text' as const, delta: '{"notify":true}' },
+        { type: 'done' as const, terminationReason: 'normal' as const },
+      ],
+      [
+        { type: 'text' as const, delta: 'yes, notify them' },
+        { type: 'done' as const, terminationReason: 'normal' as const },
+      ],
+    ]) {
+      const agent = new FakeAgentAdapter({ events });
+      const executor = new RunExecutor({
+        agent,
+        pool: new ProcessPool(() => 1),
+        activeRuns: new ActiveRuns(),
+      });
+      await expect(executor.evaluateCompletionReminder({
+        question: 'Question',
+        answer: 'Answer',
+      })).resolves.toBe(false);
+    }
+  });
+
+  it('skips the judge for DSH because the backend cannot enforce a no-tools run', async () => {
+    const agent = new FakeAgentAdapter({
+      id: 'dsh',
+      events: [
+        { type: 'text', delta: '{"notify":true}' },
+        { type: 'done', terminationReason: 'normal' },
+      ],
+    });
+    const executor = new RunExecutor({
+      agent,
+      pool: new ProcessPool(() => 1),
+      activeRuns: new ActiveRuns(),
+    });
+
+    await expect(executor.evaluateCompletionReminder({
+      question: 'Question',
+      answer: 'Answer',
+    })).resolves.toBe(false);
+    expect(agent.runOptions).toHaveLength(0);
+  });
+});
+
 function policy(overrides: Partial<RunPolicyAllow> = {}): RunPolicyAllow {
   return {
     ok: true,

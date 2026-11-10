@@ -11,7 +11,7 @@
 
 本仓库基于 KeepSilenceQP `0.7.1-qp.4`，保留流式卡片恢复、Codex 最终回复处理和群提示词会话绑定，并选择性移植 RoverTang 的 **DeepSeek Harness（DSH）** 后端。支持 Claude Code、Codex、DSH 三种独立后端，不会自动重放中断的任务。
 
-使用 `npm install -g @bwlfhu/lark-channel-bridge@0.8.2` 安装当前版本 `0.8.2`。此版本新增工具调用“完整显示 / 仅运行时显示 / 隐藏”，支持底部实时命令状态，完成后移除工具信息。DSH 的安装、现有凭据复用、本地兼容 API 与限制见 [DSH 部署说明](docs/runbooks/dsh-profile.md)，后续同步和发布流程见 [维护说明](docs/maintenance.md)。以下上游集成记录来自 KeepSilenceQP，保留作来源追溯。
+使用 `npm install -g @bwlfhu/lark-channel-bridge@0.8.3-beta.1` 安装 beta 版 `0.8.3-beta.1`。Codex 和 Claude 后端中，群聊真人明确 @ 当前 bot 发起的任务运行至少 30 秒且正常完成后，bridge 会让当前模型判断是否值得提醒；判断为需要时，另发一条带原提问人原生 @ 的消息。DSH 暂不启用提醒，因为其 CLI 尚不能保证 judge 不调用工具。详见 [beta 更新说明](docs/releases/0.8.3-beta.1.md)、[DSH 部署说明](docs/runbooks/dsh-profile.md) 和 [维护说明](docs/maintenance.md)。以下上游集成记录来自 KeepSilenceQP，保留作来源追溯。
 
 ### 上游集成记录
 

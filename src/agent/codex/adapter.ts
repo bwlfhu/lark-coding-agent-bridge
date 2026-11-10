@@ -6,6 +6,7 @@ import { log } from '../../core/logger';
 import { mergeProcessEnv, spawnProcess, type SpawnedProcessByStdio } from '../../platform/spawn';
 import { SpawnFailed } from '../../runtime/errors';
 import { composeBridgeSystemPrompt } from '../bridge-system-prompt';
+import { COMPLETION_REMINDER_JUDGE_SYSTEM_PROMPT } from '../completion-judge';
 import { buildLarkChannelEnv, type LarkChannelEnvContext } from '../lark-channel-env';
 import { createPromptRedactor } from '../prompt-redaction';
 import { checkAgentAvailability, type AgentAvailability } from '../preflight';
@@ -124,6 +125,7 @@ export class CodexAdapter implements AgentAdapter {
       );
     }
     if (!opts) return;
+    if (opts.purpose === 'completion-judge') return;
     const envOverrides: NodeJS.ProcessEnv = buildLarkChannelEnv({
       ...this.larkChannel,
       routeId: opts?.routeId,
@@ -195,28 +197,32 @@ export class CodexAdapter implements AgentAdapter {
     if (!opts.cwd) {
       throw new Error('cwd is required for CodexAdapter.run');
     }
+    const judgeOnly = opts.purpose === 'completion-judge';
     const preparedProbe = this.turnProbeBaselines.get(opts.runId);
     this.turnProbeBaselines.delete(opts.runId);
-    const terminalProbe = opts.threadId
+    const terminalProbe = judgeOnly
+      ? undefined
+      : opts.threadId
       ? preparedProbe?.enabled
         ? this.turnStateProbe
         : undefined
       : this.turnStateProbe;
 
-    const developerInstructions = composeBridgeSystemPrompt(
-      this.botIdentity,
-      opts.systemPromptAddendum,
-    );
+    const developerInstructions = judgeOnly
+      ? COMPLETION_REMINDER_JUDGE_SYSTEM_PROMPT
+      : composeBridgeSystemPrompt(this.botIdentity, opts.systemPromptAddendum);
     const args = buildCodexArgs({
       cwd: opts.cwd,
-      sandbox: opts.sandbox ?? this.sandbox,
-      threadId: opts.threadId,
-      images: opts.images,
-      ignoreUserConfig: this.ignoreUserConfig,
-      ignoreRules: this.ignoreRules,
+      sandbox: judgeOnly ? 'read-only' : opts.sandbox ?? this.sandbox,
+      threadId: judgeOnly ? undefined : opts.threadId,
+      images: judgeOnly ? undefined : opts.images,
+      ignoreUserConfig: judgeOnly || this.ignoreUserConfig,
+      ignoreRules: judgeOnly || this.ignoreRules,
       model: opts.model,
       reasoningEffort: opts.reasoningEffort,
-      serviceTier: opts.serviceTier,
+      serviceTier: judgeOnly ? undefined : opts.serviceTier,
+      ephemeral: judgeOnly,
+      shellEnvironmentInheritance: judgeOnly ? 'none' : 'all',
       developerInstructions,
     });
     const redactPrompt = createPromptRedactor([
@@ -225,10 +231,9 @@ export class CodexAdapter implements AgentAdapter {
       opts.systemPromptAddendum ?? '',
       `developer_instructions=${JSON.stringify(developerInstructions)}`,
     ]);
-    const envOverrides: NodeJS.ProcessEnv = buildLarkChannelEnv({
-      ...this.larkChannel,
-      routeId: opts.routeId,
-    });
+    const envOverrides: NodeJS.ProcessEnv = buildLarkChannelEnv(
+      judgeOnly ? undefined : { ...this.larkChannel, routeId: opts.routeId },
+    );
     if (this.codexHome) {
       envOverrides.CODEX_HOME = this.codexHome;
     } else if (!this.inheritCodexHome) {

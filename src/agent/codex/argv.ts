@@ -12,6 +12,8 @@ export interface BuildCodexArgsInput {
   model?: string;
   reasoningEffort?: string;
   serviceTier?: 'fast' | 'default';
+  ephemeral?: boolean;
+  shellEnvironmentInheritance?: 'all' | 'none';
 }
 
 export function buildCodexArgs(input: BuildCodexArgsInput): string[] {
@@ -30,10 +32,11 @@ export function buildCodexArgs(input: BuildCodexArgsInput): string[] {
     ...(input.reasoningEffort ? ['-c', `model_reasoning_effort=${JSON.stringify(input.reasoningEffort)}`] : []),
     ...(input.serviceTier ? ['-c', `service_tier=${JSON.stringify(input.serviceTier)}`] : []),
     ...(input.serviceTier === 'fast' ? ['-c', 'features.fast_mode=true'] : []),
+    ...(input.ephemeral ? ['--ephemeral'] : []),
     '-c',
     'approval_policy="never"',
     '-c',
-    'shell_environment_policy.inherit="all"',
+    `shell_environment_policy.inherit=${JSON.stringify(input.shellEnvironmentInheritance ?? 'all')}`,
     ...(input.developerInstructions === undefined
       ? []
       : ['-c', `developer_instructions=${JSON.stringify(input.developerInstructions)}`]),
