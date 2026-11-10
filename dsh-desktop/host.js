@@ -43,7 +43,7 @@ export async function apply(ctx) {
   async function status() {
     let permissions;
     try { permissions = await ctx.get('cuaAccess')?.systemStatus(); } catch (e) { permissions = { error: e.message }; }
-    return { ok: true, version: '0.8.3-beta.2', protocolVersion: 1, hostPid: process.pid,
+    return { ok: true, version: '0.8.3-beta.3', protocolVersion: 1, hostPid: process.pid,
       model: ctx.agentDefaultModel.currentSelection(), sessions: aliases, active: [...active.keys()],
       cua: !!ctx.get('cuaAccess'), permissions };
   }
@@ -96,7 +96,7 @@ export async function apply(ctx) {
         intent: { kind: 'approval', approve: '允许一次', reject: '拒绝' } }], approval.signal ?? lifetime.signal);
       return response.answers[0]?.selected.includes('允许一次') ? 'allowed-once' : 'rejected';
     }, { prepend: true });
-    const cancel = () => agent.cancel();
+    const cancel = () => agent.cancel({ kind: 'user' });
     lifetime.signal.addEventListener('abort', cancel, { once: true });
     active.set(sessionId, { agent, requestId: request.requestId });
     try {
@@ -146,7 +146,7 @@ export async function apply(ctx) {
     const lifetime = new AbortController();
     let started = false, finished = false;
     socket.on('error', () => {});
-    socket.on('close', () => { sockets.delete(socket); if (!finished) lifetime.abort(new Error('Bridge disconnected')); });
+    socket.on('close', () => { sockets.delete(socket); if (!finished && !closing) lifetime.abort(new Error('Bridge disconnected')); });
     frameReader(socket, request => {
       if (request.op === 'status') { void status().then(v => writeFrame(socket, v), e => writeFrame(socket, { ok: false, error: e.message })).finally(() => socket.end()); return; }
       if (request.op === 'cancel') { lifetime.abort(new Error('User stopped task')); return; }
@@ -165,7 +165,7 @@ export async function apply(ctx) {
   await chmod(hostSocket, 0o600);
   ctx.effect(() => async () => {
     closing = true;
-    for (const { agent } of active.values()) agent.cancel();
+    for (const { agent } of active.values()) agent.cancel({ kind: 'disposed' });
     for (const socket of sockets) socket.destroy();
     await tail;
     await new Promise(resolve => server.close(resolve));

@@ -1,6 +1,10 @@
 # 自有维护分支
 
-维护仓库：<https://github.com/bwlfhu/lark-coding-agent-bridge>。CLI 仍为 `lark-channel-bridge`；npm 包为 `@bwlfhu/lark-channel-bridge`，首个整合版本为 `0.8.0-allcam.1`，最新 beta 为 `0.8.3-beta.1`。使用 `npm install -g @bwlfhu/lark-channel-bridge@0.8.3-beta.1` 安装 beta。
+维护仓库：<https://github.com/bwlfhu/lark-coding-agent-bridge>。CLI 仍为 `lark-channel-bridge`；npm 包为 `@bwlfhu/lark-channel-bridge`，首个整合版本为 `0.8.0-allcam.1`，最新 beta 为 `0.8.3-beta.3`。使用 `npm install -g @bwlfhu/lark-channel-bridge@0.8.3-beta.3` 安装 beta。
+
+## 0.8.3-beta.3 桌面停止修复
+
+beta.2 新增官方 DSH Desktop transport 和 Computer Use 接入；beta.3 修复取消时漏传官方原因参数导致 `turn/end.reason:null`、桌面对话空白的问题。停止/断连、卸载分别传入官方 `user`、`disposed` 原因，卸载时避免重复取消。已有坏日志须停机备份后单独恢复；详见 [Desktop runbook](runbooks/dsh-desktop.md)。
 
 ## 0.8.3-beta.1 完成提醒
 

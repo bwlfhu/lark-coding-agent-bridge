@@ -5,13 +5,13 @@
 ## 安装
 
 1. 从 [DeepSeek 官方仓库](https://github.com/deepseek-ai/deepseek-harness) 或官方下载地址安装并启动 Desktop。macOS Apple Silicon 下载为 `https://download.deepseek.com/desktop/dsh-latest-macos-arm64.dmg`。本版本针对 Desktop `0.2.2-rc.1` 验证；这些扩展 API 仍可能变化。
-2. 安装 bridge `npm install -g @bwlfhu/lark-channel-bridge@0.8.3-beta.2`。
+2. 安装 bridge `npm install -g @bwlfhu/lark-channel-bridge@0.8.3-beta.3`。beta.3 修复了停止任务产生非法结束事件、导致桌面对话空白的问题。
 3. 退出 Desktop，使用应用自带 CLI 安装官方 CUA bundle 和本包的 Host 插件：
 
 ```sh
 DSH_CLI='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
 "$DSH_CLI" plugin --profile desktop add '@deepseek-ai/dsh-cua-bundle@0.2.2-rc.1'
-"$DSH_CLI" plugin --profile desktop add '@bwlfhu/lark-channel-bridge@0.8.3-beta.2'
+"$DSH_CLI" plugin --profile desktop add '@bwlfhu/lark-channel-bridge@0.8.3-beta.3'
 ```
 
 4. 重开 Desktop，在插件页确认 Computer Use 的三个组件和 bridge Host 均运行。在 macOS 系统设置中给 **DSH Computer Use.app** 授予辅助功能、屏幕录制。各应用的访问仍由官方 CUA 单独询问，可通过当前飞书会话回答。
@@ -47,5 +47,7 @@ DSH_CLI='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/d
 ## 升级与回滚
 
 发布部署建议将插件安装到固定版本的 release 目录，避免长期 link 开发目录。升级 Host 前退出 Desktop、更新插件再重开；不要在任务运行中卸载。
+
+beta.2 若执行过停止或发生断连，旧日志可能含 `turn/end.reason:null`。升级可阻止本桥接继续生成该事件，但不能修复已保存的日志。应先停止 bridge、退出 Desktop，备份并逐帧核验受影响文件，只修正已确认的取消事件；无法恢复原始取消原因时使用官方持久化原因 `{kind:'aborted',reason:{kind:'legacy'}}`，不要改成 `completed`。重启后验证原会话、停止后续聊，并重新检查是否有新增空原因事件。
 
 回滚时先停止当前 bridge，恢复之前的 bridge release 路径和 profile 配置，将 transport 改为 `cli`（或移除此字段）、profile 改回原 headless，并恢复其 binaryPath。重启后确认只有一个消费者。桌面会话和 CLI 会话各自保留。若需要恢复原 CLI 对话，可恢复迁移前的 bridge sessions 备份；不要把 Desktop session 当作 headless session 重放。
