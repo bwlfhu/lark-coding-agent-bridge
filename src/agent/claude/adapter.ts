@@ -19,6 +19,7 @@ import {
   type AgentRunOptions,
 } from '../types';
 import { translateEvent } from './stream-json';
+import { askUserMcpConfig, ASK_USER_INSTRUCTIONS } from '../ask-user/config';
 
 export interface ClaudeAdapterOptions {
   binary?: string;
@@ -71,11 +72,13 @@ export class ClaudeAdapter implements AgentAdapter {
     // prompt via a temp file (the same approach the Codex adapter uses) so no
     // special characters ever reach the shell.
     const judgeOnly = opts.purpose === 'completion-judge';
+    const askUser = judgeOnly ? undefined : askUserMcpConfig(this.larkChannel, opts.routeId);
     const systemPrompt = judgeOnly
       ? COMPLETION_REMINDER_JUDGE_SYSTEM_PROMPT
-      : composeBridgeSystemPrompt(this.botIdentity, opts.systemPromptAddendum);
+      : composeBridgeSystemPrompt(this.botIdentity, opts.systemPromptAddendum) + (askUser ? ASK_USER_INSTRUCTIONS : '');
     const redactPrompt = createPromptRedactor([opts.prompt, systemPrompt, opts.systemPromptAddendum ?? '']);
     const systemPromptFile = writeSystemPromptFile(systemPrompt);
+    const mcpConfigFile = askUser ? writeSystemPromptFile(JSON.stringify({ mcpServers: { lark_bridge: askUser } })) : undefined;
 
     const args = ['-p', '--output-format', 'stream-json', '--verbose'];
     if (judgeOnly) {
@@ -98,12 +101,13 @@ export class ClaudeAdapter implements AgentAdapter {
       if (opts.sessionId) args.push('--resume', opts.sessionId);
     }
     if (opts.model) args.push('--model', opts.model);
+    if (mcpConfigFile) args.push('--mcp-config', mcpConfigFile.path, '--allowedTools', 'mcp__lark_bridge__ask_user', '--disallowedTools', 'AskUserQuestion');
 
     const child = spawnProcess(this.binary, args, {
       cwd: opts.cwd,
       env: mergeProcessEnv(
         process.env,
-        buildLarkChannelEnv(judgeOnly ? undefined : { ...this.larkChannel, routeId: opts.routeId }),
+        { ...buildLarkChannelEnv(judgeOnly ? undefined : { ...this.larkChannel, routeId: opts.routeId }), ...(askUser ? { MCP_TOOL_TIMEOUT: '630000' } : {}) },
       ),
       stdio: ['pipe', 'pipe', 'pipe'],
     }) as ClaudeChild;
@@ -144,10 +148,12 @@ export class ClaudeAdapter implements AgentAdapter {
     child.on('error', (err) => {
       runtimeError = new Error(redactPrompt(err.message));
       systemPromptFile.cleanup();
+      mcpConfigFile?.cleanup();
     });
     child.on('exit', (code, signal) => {
       log.info('agent', 'exit', { pid: child.pid ?? null, code, signal });
       systemPromptFile.cleanup();
+      mcpConfigFile?.cleanup();
     });
     child.stdin.on('error', (err) => {
       log.warn('agent', 'stdin-error', { message: redactPrompt(err.message) });

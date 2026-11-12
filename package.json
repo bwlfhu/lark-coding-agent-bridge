@@ -1,6 +1,6 @@
 {
   "name": "@bwlfhu/lark-channel-bridge",
-  "version": "0.8.3-beta.3",
+  "version": "0.8.3-beta.4",
   "description": "Feishu/Lark bridge for local Codex, Claude Code and DeepSeek Harness",
   "type": "module",
   "packageManager": "pnpm@10.33.0",
@@ -43,7 +43,9 @@
     "docs/releases/0.8.3-beta.2.md",
     "docs/releases/0.8.3-beta.3.md",
     "docs/maintenance.md",
-    "dsh-desktop"
+    "dsh-desktop",
+    "docs/runbooks/ask-user.md",
+    "docs/releases/0.8.3-beta.4.md"
   ],
   "scripts": {
     "dev": "tsup --watch",
@@ -68,6 +70,7 @@
   "dependencies": {
     "@clack/prompts": "^1.4.0",
     "@larksuite/channel": "file:vendor/larksuite-channel-0.6.0-qp.1.tgz",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "commander": "^12.1.0",
     "cross-spawn": "^7.0.6",
     "graceful-fs": "^4.2.11",

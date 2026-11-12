@@ -159,7 +159,7 @@ type Harness = {
 };
 
 async function createHarness(
-  opts: { callbackAuth?: boolean; chatMode?: 'p2p' | 'group' | 'topic'; desktopControl?: Parameters<typeof handleCardAction>[0]['desktopControl'] } = {},
+  opts: { callbackAuth?: boolean; chatMode?: 'p2p' | 'group' | 'topic'; desktopControl?: Parameters<typeof handleCardAction>[0]['desktopControl']; askUserBroker?: Parameters<typeof handleCardAction>[0]['askUserBroker'] } = {},
 ): Promise<Harness> {
   const tmp = await createTmpProfile('callback-dispatch-test-');
   const channel = createFakeChannel();
@@ -252,6 +252,7 @@ async function createHarness(
         chatModeCache,
         ...(opts.callbackAuth === false ? {} : { callbackAuth: auth }),
         desktopControl: opts.desktopControl,
+        askUserBroker: opts.askUserBroker,
         callbackPolicyFingerprint: 'fp-1',
       }),
   };
@@ -282,6 +283,24 @@ describe('Desktop callback actor authorization', () => {
     expect(handleCard).not.toHaveBeenCalled();
     h.controls.botOwnerId = 'ou_operator';
     await h.dispatch({ __dsh_desktop_answer: true, token: 'test', index: 0, selected: 'Allow' });
+    expect(handleCard).toHaveBeenCalledOnce();
+  });
+});
+
+describe('ask_user callback authorization', () => {
+  it('checks current ACL before forwarding, bypasses the blocked chat queue and preserves form data', async () => {
+    const handleCard = vi.fn().mockResolvedValue(true);
+    const h = await createHarness({ chatMode: 'p2p', askUserBroker: { handleCard, bindRoute() {}, cancelRoute() {}, close: async () => {} } });
+    const value = { __ask_user_answer: true, token: 'opaque', index: 0, form: true };
+    h.pending.block('oc_group');
+    await h.dispatch(value, { answer: 'test' });
+    expect(handleCard).not.toHaveBeenCalled();
+    h.controls.botOwnerId = 'ou_operator';
+    await h.dispatch(value, { answer: 'test' });
+    expect(handleCard).toHaveBeenCalledWith(expect.objectContaining({ messageId: 'om_card' }), value, { answer: 'test' });
+    expect(h.pending.pendingCount('oc_group')).toBe(0);
+    h.controls.botOwnerId = 'ou_different';
+    await h.dispatch(value);
     expect(handleCard).toHaveBeenCalledOnce();
   });
 });

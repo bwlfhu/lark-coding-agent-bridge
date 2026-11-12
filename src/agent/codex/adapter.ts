@@ -18,6 +18,7 @@ import type {
   AgentRunOptions,
 } from '../types';
 import { buildCodexArgs } from './argv';
+import { askUserMcpConfig, codexAskUserArgs, ASK_USER_INSTRUCTIONS } from '../ask-user/config';
 import { CodexJsonlTranslator, type CodexFinishReason } from './jsonl';
 import {
   CodexDeveloperInstructionsUnsupported,
@@ -208,9 +209,10 @@ export class CodexAdapter implements AgentAdapter {
         : undefined
       : this.turnStateProbe;
 
+    const askUser = judgeOnly ? undefined : askUserMcpConfig(this.larkChannel, opts.routeId);
     const developerInstructions = judgeOnly
       ? COMPLETION_REMINDER_JUDGE_SYSTEM_PROMPT
-      : composeBridgeSystemPrompt(this.botIdentity, opts.systemPromptAddendum);
+      : composeBridgeSystemPrompt(this.botIdentity, opts.systemPromptAddendum) + (askUser ? ASK_USER_INSTRUCTIONS : '');
     const args = buildCodexArgs({
       cwd: opts.cwd,
       sandbox: judgeOnly ? 'read-only' : opts.sandbox ?? this.sandbox,
@@ -231,6 +233,7 @@ export class CodexAdapter implements AgentAdapter {
       opts.systemPromptAddendum ?? '',
       `developer_instructions=${JSON.stringify(developerInstructions)}`,
     ]);
+    if (askUser) args.splice(1, 0, ...codexAskUserArgs(askUser));
     const envOverrides: NodeJS.ProcessEnv = buildLarkChannelEnv(
       judgeOnly ? undefined : { ...this.larkChannel, routeId: opts.routeId },
     );

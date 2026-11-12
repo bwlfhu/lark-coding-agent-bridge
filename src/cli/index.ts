@@ -27,6 +27,7 @@ import { runStart } from './commands/start';
 import { runAtBotCli } from './commands/at-bot';
 import { createBotRegistryCommand } from './commands/bot-registry';
 import { runUi } from './commands/ui';
+import { runSetupInteractions } from './commands/setup-interactions';
 
 const program = new Command();
 
@@ -76,6 +77,11 @@ program
 const profile = program
   .command('profile')
   .description('Manage local bridge profiles');
+
+program.command('setup-interactions')
+  .description('Authorize card.action.trigger for an existing profile app (opens a confirmation link)')
+  .option('--profile <name>', 'profile whose existing application should receive card callbacks')
+  .action(runSetupInteractions);
 
 profile
   .command('list')

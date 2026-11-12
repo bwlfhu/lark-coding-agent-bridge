@@ -20,6 +20,7 @@ import type { AgentAdapter, AgentEvent } from '../agent/types';
 import { handleCardAction } from '../card/dispatcher';
 import { desktopControlSocketPath } from '../agent/dsh/desktop-adapter';
 import { startDesktopControl } from '../agent/dsh/desktop-control';
+import { startAskUserBroker, type AskUserBroker } from '../agent/ask-user/broker';
 import { CallbackAuth } from '../card/callback-auth';
 import { CallbackNonceStore } from '../card/callback-store';
 import { renderCard } from '../card/run-renderer';
@@ -1481,6 +1482,9 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
       desktopControlSocketPath(deps.appPaths?.profileDir ?? '', controls.profileConfig.dsh.dshHome))
     : undefined;
   const media = new MediaCache(channel, deps.appPaths?.mediaDir);
+  const askUserBroker = deps.appPaths?.profileDir && (agent.id === 'codex' || agent.id === 'claude')
+    ? await startAskUserBroker(channel, deps.appPaths.profileDir)
+    : undefined;
 
   // Pending → run handoff: while a run is active on a chat, block its pending
   // queue so messages keep accumulating without flushing. When the run ends,
@@ -1543,6 +1547,7 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
           controls,
           cotClient,
           callbackAuth,
+          askUserBroker,
           activePolicyFingerprints,
           lastRunModelByScope,
           scope,
@@ -1629,6 +1634,7 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
           callbackPolicyFingerprintForScope: (scope) =>
             activePolicyFingerprints.get(scope)?.fingerprint,
           desktopControl,
+          askUserBroker,
         });
       }).catch((err) => log.fail('cardAction', err));
     },
@@ -1784,6 +1790,7 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
                   controls,
                   cotClient,
                   callbackAuth,
+                  askUserBroker,
                   activePolicyFingerprints,
                   lastRunModelByScope,
                   scope: record.scope,
@@ -2187,6 +2194,7 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
     disconnect: async () => {
       activeRuns.pauseNewRuns('bridge-disconnect');
       await desktopControl?.close();
+      await askUserBroker?.close();
       knownChatsRefresh.stop();
       keepalive.stop();
       // Stop meeting timers but stay in the meetings: /reconnect tears the
@@ -2515,6 +2523,7 @@ export function shouldBypassDeniedChatForInviteGroup(
 }
 
 interface RunBatchDeps {
+  askUserBroker?: AskUserBroker;
   channel: LarkChannel;
   executor: RunExecutor;
   sessions: SessionStore;
@@ -2886,6 +2895,13 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     fingerprint: flow.policy.policyFingerprint,
     handle,
   });
+  const humanActors = new Set(batch.filter(shouldRegisterInboundTrigger).map(m => m.senderId));
+  if (routeLeaseId && humanActors.size === 1) {
+    deps.askUserBroker?.bindRoute(routeLeaseId, {
+      actorId: [...humanActors][0]!,
+      isActive: () => !editableHandle.interrupted && activePolicyFingerprints.get(scope)?.handle === editableHandle,
+    });
+  }
 
   if (
     deps.editedMessageRestarts &&
@@ -3500,6 +3516,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     finalizeReactionRun(scope, reactionTurnMeta, runUnitId);
   } finally {
     routeLeaseKeeper?.stop();
+    if (routeLeaseId) deps.askUserBroker?.cancelRoute(routeLeaseId);
     deps.editedMessageRestarts?.markTerminal(editableHandle);
     for (const admission of promptAdmissions) admission.finishWithoutIdentifier();
     if (activePolicyFingerprints.get(scope)?.handle === editableHandle) {

@@ -13,6 +13,8 @@
 
 使用 `npm install -g @bwlfhu/lark-channel-bridge@0.8.3-beta.2` 安装 beta.2。新增连接官方 **DeepSeek Harness Desktop + Computer Use** 的可选桌面模式，飞书任务和本机 Electron 共用桌面会话，可回传截图并在飞书回答授权卡片。详见 [beta.2 更新说明](docs/releases/0.8.3-beta.2.md) 和 [桌面部署说明](docs/runbooks/dsh-desktop.md)。同时包含 [beta.1 完成提醒](docs/releases/0.8.3-beta.1.md)：Codex/Claude 群聊长任务完成后可由模型判断是否原生 @ 提问人；DSH judge 继续停用。以下上游集成记录保留作来源追溯。
 
+`0.8.3-beta.4` 为 Codex / Claude 加入等待飞书回答的 MCP `ask_user` 工具，支持选项、多选、补充文字和取消。首次使用运行 `lark-channel-bridge setup-interactions --profile <name>` 为原应用增加卡片回调。详见 [ask_user 使用说明](docs/runbooks/ask-user.md)。
+
 ### 上游集成记录
 
 最近一次经过验证的上游集成于 2026-07-23 通过

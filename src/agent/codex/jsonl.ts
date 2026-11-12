@@ -87,6 +87,13 @@ export class CodexJsonlTranslator {
 
   private translateItemStarted(raw: Record<string, unknown>): AgentEvent[] {
     const item = recordValue(raw.item);
+    if (item?.type === 'mcp_tool_call' && item.server === 'lark_bridge' && item.tool === 'ask_user') {
+      const id = stringValue(item.id);
+      if (!id || this.startedItems.has(id)) return [];
+      this.startedItems.add(id);
+      this.lastAgentMessage = undefined;
+      return [{ type: 'tool_use', id, name: 'mcp__lark_bridge__ask_user', input: item.arguments ?? {} }];
+    }
     if (!item || item.type !== 'command_execution') return [];
     this.lastAgentMessage = undefined;
     const id = stringValue(item.id);
@@ -110,6 +117,12 @@ export class CodexJsonlTranslator {
   private translateItemCompleted(raw: Record<string, unknown>): AgentEvent[] {
     const item = recordValue(raw.item);
     if (!item) return [];
+    if (item.type === 'mcp_tool_call' && item.server === 'lark_bridge' && item.tool === 'ask_user') {
+      const id = stringValue(item.id);
+      if (!id) return [];
+      this.startedItems.delete(id);
+      return [{ type: 'tool_result', id, output: JSON.stringify(item.result ?? item.error ?? {}), isError: Boolean(item.error) || item.status === 'failed' }];
+    }
     if (item.type === 'agent_message') {
       const message = stringValue(item.text ?? item.message);
       return message ? this.emitAgentMessage(message) : [];

@@ -2,7 +2,7 @@ import { defineConfig } from 'tsup';
 
 export default defineConfig([
   {
-    entry: { cli: 'src/cli/index.ts' },
+    entry: { cli: 'src/cli/index.ts', 'ask-user-mcp': 'src/agent/ask-user/mcp.ts' },
     outDir: 'dist',
     format: ['esm'],
     target: 'node20',

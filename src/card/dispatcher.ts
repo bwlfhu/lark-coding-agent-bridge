@@ -6,6 +6,7 @@ import type { PendingQueue } from '../bot/pending-queue';
 import type { ProcessPool } from '../bot/process-pool';
 import type { CallbackAuth } from './callback-auth';
 import type { DesktopControl } from '../agent/dsh/desktop-control';
+import type { AskUserBroker } from '../agent/ask-user/broker';
 import { runCommandHandler, type CommandContext, type Controls } from '../commands';
 import { log } from '../core/logger';
 import { canUseDm, canUseGroup } from '../policy/access';
@@ -42,6 +43,7 @@ export interface CardDispatchDeps {
   chatModeCache: ChatModeCache;
   callbackAuth?: CallbackAuth;
   desktopControl?: DesktopControl;
+  askUserBroker?: AskUserBroker;
   callbackPolicyFingerprint?: string;
   callbackPolicyFingerprintForScope?: (scope: string) => string | undefined;
 }
@@ -78,6 +80,11 @@ export async function handleCardAction(deps: CardDispatchDeps): Promise<void> {
       operator: operatorId.slice(-6),
       reason: accessDecision.reason,
     });
+    return;
+  }
+
+  if (payload.__ask_user_answer === true) {
+    await deps.askUserBroker?.handleCard(deps.evt, payload, formValue);
     return;
   }
 
