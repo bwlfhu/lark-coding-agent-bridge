@@ -6,7 +6,7 @@ import type { CardActionEvent, LarkChannel } from '@larksuite/channel';
 import { removeStaleSocket } from '../../../dsh-desktop/ipc.js';
 import { validateRouteLease } from '../../runtime/route-lease';
 import { log } from '../../core/logger';
-import { ASK_USER_TIMEOUT_MS, parseQuestions, type AskUserResult, type UserAnswer, type UserQuestion } from './schema';
+import { ASK_USER_TIMEOUT_MS, parseQuestions, recommendedOptions, type AskUserResult, type UserAnswer, type UserQuestion } from './schema';
 import { askUserSocketPath, readFrames, writeFrame } from './transport';
 
 interface Binding { actorId: string; isActive(): boolean }
@@ -32,22 +32,26 @@ export interface AskUserBroker {
 
 export function questionCard(q: UserQuestion, token: string, index: number, status?: string): object {
   const value = (extra: object) => ({ __ask_user_answer: true, token, index, ...extra });
+  const recommendations = recommendedOptions(q);
+  const optionLabel = (o: NonNullable<UserQuestion['options']>[number]) => o.recommended === true ? `${o.label}（推荐）` : o.label;
   const elements: object[] = [{ tag: 'markdown', content: `**${q.question}**` }];
   if (status) elements.push({ tag: 'markdown', content: status });
   else {
     for (const o of q.options ?? []) if (o.description) elements.push({ tag: 'markdown', content: `**${o.label}** — ${o.description}` });
     if (!q.multiSelect) {
-      for (const [i, o] of (q.options ?? []).entries()) elements.push({ tag: 'button', text: { tag: 'plain_text', content: o.label },
+      for (const [i, o] of (q.options ?? []).entries()) elements.push({ tag: 'button', text: { tag: 'plain_text', content: optionLabel(o) },
         type: 'default', behaviors: [{ type: 'callback', value: value({ selected: String(i) }) }] });
     }
     const form: object[] = [];
     if (q.multiSelect) form.push({ tag: 'multi_select_static', name: 'choices', placeholder: { tag: 'plain_text', content: '选择一个或多个选项' },
-      options: q.options!.map((o, i) => ({ text: { tag: 'plain_text', content: o.label }, value: String(i) })) });
+      options: q.options!.map((o, i) => ({ text: { tag: 'plain_text', content: optionLabel(o) }, value: String(i) })) });
     form.push({ tag: 'input', name: 'answer', placeholder: { tag: 'plain_text', content: q.options ? '其他答案或补充说明' : '输入你的回答' } });
     form.push({ tag: 'button', name: 'submit', action_type: 'form_submit', text: { tag: 'plain_text', content: '提交回答' }, value: value({ form: true }) });
     elements.push({ tag: 'form', name: 'ask_user_form', elements: form });
     elements.push({ tag: 'button', text: { tag: 'plain_text', content: '取消本次提问' }, type: 'danger', behaviors: [{ type: 'callback', value: value({ cancel: true }) }] });
-    elements.push({ tag: 'markdown', content: '等待本轮提问人回答 · 10 分钟内有效 · 未回答不会默认同意。' });
+    elements.push({ tag: 'markdown', content: recommendations.length
+      ? `等待本轮提问人回答 · 10 分钟内有效 · 超时将自动选择推荐项：${recommendations.map(o => o.label).join('、')}，并继续任务。`
+      : '等待本轮提问人回答 · 10 分钟内有效 · 此题无明确推荐项，超时不会编造答案。' });
   }
   return { schema: '2.0', header: { title: { tag: 'plain_text', content: status ? '问题已结束' : '需要你的选择' }, template: status ? 'grey' : 'blue' }, body: { elements } };
 }
@@ -85,8 +89,38 @@ export async function startAskUserBroker(
     record.settling = true; pending.delete(token); clearTimeout(record.timer);
     writeFrame(record.socket, result); record.socket.end();
     const label = result.status === 'answered' ? '已回答，当前任务将继续。' : result.status === 'expired' ? '等待超时，未取得决定。' : '本次提问已取消，未取得决定。';
-    for (const [id, index] of record.cards) void update(record, id, index, label);
-    log.info('ask-user', 'resolved', { status: result.status, questions: record.questions.length });
+    for (const [id, index] of record.cards) {
+      const answer = result.status === 'answered' ? result.answers[index] : undefined;
+      void update(record, id, index, answer?.source === 'timeout_recommendation'
+        ? `超时，已按推荐项自动选择：${answer.selected.join('、')}，当前任务将继续。` : label);
+    }
+    log.info('ask-user', 'resolved', { status: result.status, questions: record.questions.length,
+      ...(result.status === 'answered' ? { automaticAnswers: result.answers.filter(a => a.source === 'timeout_recommendation').length } : {}) });
+  };
+  const onTimeout = async (token: string, record: Pending): Promise<void> => {
+    if (record.settling) return;
+    const route = await valid(record.routeId, record.binding);
+    if (record.settling) return;
+    if (!route || !record.binding.isActive() || bindings.get(record.routeId) !== record.binding) {
+      finish(token, record, { status: 'cancelled', reason: 'The originating run ended or its route expired' });
+      return;
+    }
+    if (record.cards.size !== record.questions.length) {
+      finish(token, record, { status: 'unavailable', reason: 'Not all question cards were delivered' });
+      return;
+    }
+    const answers: UserAnswer[] = [];
+    for (const [index, question] of record.questions.entries()) {
+      const answered = record.answers.get(index);
+      if (answered) { answers.push(answered); continue; }
+      const choices = recommendedOptions(question);
+      if (!choices.length) {
+        finish(token, record, { status: 'expired', reason: 'An unanswered question has no unambiguous recommended option' });
+        return;
+      }
+      answers.push({ id: question.id, selected: choices.map(o => o.label), source: 'timeout_recommendation' });
+    }
+    finish(token, record, { status: 'answered', answers });
   };
   const server = net.createServer(socket => {
     sockets.add(socket); socket.on('error', () => {}); socket.on('close', () => sockets.delete(socket));
@@ -104,7 +138,8 @@ export async function startAskUserBroker(
         const token = randomBytes(24).toString('base64url');
         const record: Pending = { routeId, binding, chatId: route.chatId, socket, questions, answers: new Map(), cards: new Map(),
           expiresAt: Date.now() + timeoutMs, settling: false,
-          timer: setTimeout(() => finish(token, record, { status: 'expired', reason: 'No answer within the question deadline' }), timeoutMs) };
+          timer: setTimeout(() => { void onTimeout(token, record).catch(() => finish(token, record,
+            { status: 'unavailable', reason: 'Could not verify the originating run at the question deadline' })); }, timeoutMs) };
         pending.set(token, record);
         socket.once('close', () => finish(token, record, { status: 'cancelled', reason: 'Question tool disconnected' }));
         try {

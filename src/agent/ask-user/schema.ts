@@ -1,11 +1,11 @@
 export interface UserQuestion {
   id: string;
   question: string;
-  options?: { label: string; description?: string }[];
+  options?: { label: string; description?: string; recommended?: boolean }[];
   multiSelect?: boolean;
 }
 
-export interface UserAnswer { id: string; selected: string[]; text?: string }
+export interface UserAnswer { id: string; selected: string[]; text?: string; source?: 'timeout_recommendation' }
 export type AskUserResult =
   | { status: 'answered'; answers: UserAnswer[] }
   | { status: 'cancelled' | 'expired' | 'unavailable'; reason: string };
@@ -31,6 +31,7 @@ export const ASK_USER_INPUT_SCHEMA = {
               properties: {
                 label: { type: 'string', minLength: 1, maxLength: 120 },
                 description: { type: 'string', maxLength: 500 },
+                recommended: { type: 'boolean', description: 'Recommended default to select automatically after 10 minutes without an answer. Use one for single choice; one or more for multi-select.' },
               },
             },
           },
@@ -63,13 +64,22 @@ export function parseQuestions(input: unknown): UserQuestion[] {
       if (!Array.isArray(q.options) || q.options.length < 2 || q.options.length > 5) throw new Error('Invalid ask_user options');
       const labels = new Set<string>();
       for (const o of q.options) {
-        if (!record(o) || Object.keys(o).some(k => !['label', 'description'].includes(k)) || !text(o.label, 120) ||
-            labels.has(o.label.trim()) || (o.description !== undefined && (typeof o.description !== 'string' || o.description.length > 500))) {
+        if (!record(o) || Object.keys(o).some(k => !['label', 'description', 'recommended'].includes(k)) || !text(o.label, 120) ||
+            labels.has(o.label.trim()) || (o.recommended !== undefined && typeof o.recommended !== 'boolean') ||
+            (o.description !== undefined && (typeof o.description !== 'string' || o.description.length > 500))) {
           throw new Error('Invalid or duplicate ask_user option');
         }
         labels.add(o.label.trim());
       }
+      if (!q.multiSelect && q.options.filter(o => o.recommended === true).length > 1) throw new Error('Single choice requires at most one recommendation');
     } else if (q.multiSelect) throw new Error('multiSelect requires options');
     return q as unknown as UserQuestion;
   });
+}
+
+/** Structured recommendations take precedence; retain compatibility with existing labelled choices. */
+export function recommendedOptions(q: UserQuestion): NonNullable<UserQuestion['options']> {
+  const explicit = q.options?.filter(o => o.recommended === true) ?? [];
+  const choices = explicit.length ? explicit : q.options?.filter(o => o.recommended === undefined && /[（(]\s*(?:推荐|recommended)\s*[）)]\s*$/i.test(o.label)) ?? [];
+  return !q.multiSelect && choices.length !== 1 ? [] : choices;
 }

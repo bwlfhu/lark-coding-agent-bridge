@@ -85,6 +85,62 @@ describe('ask_user broker', () => {
     expect(f.send).toHaveBeenCalledOnce();
   });
 
+  it('continues on timeout with the explicit recommendation, labels the source and rejects late clicks', async () => {
+    const f = await fixture(250);
+    const result = f.request([{ id: 'color', question: '颜色？', options: [{ label: '绿色' }, { label: '蓝色', recommended: true }] }]);
+    await vi.waitFor(() => expect(f.send).toHaveBeenCalledOnce());
+    expect(JSON.stringify(f.send.mock.calls[0])).toContain('蓝色（推荐）');
+    expect(JSON.stringify(f.send.mock.calls[0])).toContain('超时将自动选择推荐项');
+    const value = f.payload();
+    expect(await result).toEqual({ status: 'answered', answers: [{ id: 'color', selected: ['蓝色'], source: 'timeout_recommendation' }] });
+    expect(await f.broker.handleCard(f.event(), value)).toBe(false);
+    await vi.waitFor(() => expect(JSON.stringify(f.updateCard.mock.calls)).toContain('超时，已按推荐项自动选择：蓝色'));
+  });
+
+  it('preserves human answers and fills only unanswered questions with all multi-select recommendations', async () => {
+    const f = await fixture(250);
+    const result = f.request([
+      { ...f.questions[0], options: [{ label: '审查后发布', recommended: true }, { label: '仅记录' }] },
+      { id: 'checks', question: '检查项？', multiSelect: true, options: [{ label: '类型', recommended: true }, { label: '构建', recommended: true }, { label: '其他' }] },
+    ]);
+    await vi.waitFor(() => expect(f.send).toHaveBeenCalledTimes(2));
+    expect(await f.broker.handleCard(f.event(), f.payload(0, 2))).toBe(true);
+    expect(await result).toEqual({ status: 'answered', answers: [
+      { id: 'release', selected: ['仅记录'] },
+      { id: 'checks', selected: ['类型', '构建'], source: 'timeout_recommendation' },
+    ] });
+  });
+
+  it('recognizes an unambiguous legacy recommendation label without guessing the first option', async () => {
+    const f = await fixture(150);
+    expect(await f.request([{ id: 'color', question: '颜色？', options: [{ label: '绿色' }, { label: '蓝色 (Recommended)' }] }]))
+      .toMatchObject({ status: 'answered', answers: [{ selected: ['蓝色 (Recommended)'], source: 'timeout_recommendation' }] });
+  });
+
+  it('does not fabricate answers to free text or choices without a recommendation', async () => {
+    const f = await fixture(100);
+    expect(await f.request([{ id: 'detail', question: '请补充地址' }])).toMatchObject({ status: 'expired' });
+    expect(await f.request([{ id: 'color', question: '颜色？', options: [{ label: 'A（推荐）' }, { label: 'B（推荐）' }] }]))
+      .toMatchObject({ status: 'expired' });
+  });
+
+  it.each(['stopped', 'expired-lease', 'cancelled', 'disconnect'] as const)('never auto-answers a recommendation after %s', async mode => {
+    const f = await fixture(150);
+    const result = f.request([{ ...f.questions[0], options: [{ label: '继续', recommended: true }, { label: '停止' }] }]);
+    await vi.waitFor(() => expect(f.send).toHaveBeenCalledOnce());
+    if (mode === 'stopped') f.stop();
+    else if (mode === 'expired-lease') await writeFile(f.leasePath, JSON.stringify({ ...f.lease, expiresAt: '2020-01-01T00:00:00Z' }));
+    else if (mode === 'cancelled') f.broker.cancelRoute(f.routeId);
+    else await f.broker.close();
+    expect(await result).toMatchObject({ status: 'cancelled' });
+  });
+
+  it('rejects multiple explicit recommendations for a single choice and invalid recommendation flags', () => {
+    for (const flags of [[true, true], ['true', false]]) expect(() => parseQuestions({ questions: [{
+      id: 'q', question: 'q?', options: [{ label: 'A', recommended: flags[0] }, { label: 'B', recommended: flags[1] }],
+    }] })).toThrow();
+  });
+
   it('cancels on user cancel or originating run end, and rejects inactive runs', async () => {
     const f = await fixture();
     const first = f.request();

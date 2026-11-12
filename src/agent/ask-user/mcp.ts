@@ -7,7 +7,7 @@ import { askUserRpc } from './transport';
 const server = new Server({ name: 'lark-bridge-ask-user', version: '1.0.0' }, { capabilities: { tools: {} } });
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [{
   name: 'ask_user',
-  description: 'Ask the verified Feishu requester a material question and WAIT for their choice or free-text answer. Input MUST be {"questions":[{"id":"q1","question":"Your question?","options":[{"label":"A"},{"label":"B"}]}]}. Returns to this same tool call. Never treat cancelled/expired/unavailable as consent. No recipient or routing IDs are accepted.',
+  description: 'Ask the verified Feishu requester and WAIT. Input: {"questions":[{"id":"q1","question":"Your question?","options":[{"label":"A","recommended":true},{"label":"B"}]}]}. Mark your recommended choice with recommended:true (one for single choice, one or more for multi-select). After 10 minutes, unanswered choices automatically use these recommendations; status=answered with answer.source=timeout_recommendation means CONTINUE the same task using that selection. Human answers are preserved. Free text cannot be invented. cancelled/expired/unavailable are not consent. No recipient or routing IDs are accepted.',
   inputSchema: ASK_USER_INPUT_SCHEMA,
 }] }));
 server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {

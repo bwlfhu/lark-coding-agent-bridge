@@ -15,6 +15,8 @@
 
 `0.8.3-beta.4` 为 Codex / Claude 加入等待飞书回答的 MCP `ask_user` 工具，支持选项、多选、补充文字和取消。首次使用运行 `lark-channel-bridge setup-interactions --profile <name>` 为原应用增加卡片回调。详见 [ask_user 使用说明](docs/runbooks/ask-user.md)。
 
+`0.8.3-beta.5` 支持 10 分钟超时后自动采用明确的推荐选项并继续任务；卡片会提前说明，已回答内容保持不变，主动取消/停止不当作同意。
+
 ### 上游集成记录
 
 最近一次经过验证的上游集成于 2026-07-23 通过
